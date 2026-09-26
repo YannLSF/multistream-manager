@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connexion · Multistream Manager</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="login-body">
+  <main class="login-shell">
+    <section class="panel login-panel">
+      <div class="eyebrow">MULTISTREAM MANAGER</div>
+      <h1>Connexion</h1>
+      <p>Authentifie-toi pour accéder au contrôle des destinations.</p>
+      <form id="loginForm">
+        <label>Identifiant
+          <input id="loginUsername" autocomplete="username" required autofocus>
+        </label>
+        <label>Mot de passe
+          <input id="loginPassword" type="password" autocomplete="current-password" required>
+        </label>
+        <div id="loginError" class="error hidden"></div>
+        <button type="submit" class="primary login-submit">Se connecter</button>
+      </form>
+    </section>
+  </main>
+  <script src="/login.js"></script>
+</body>
+</html>

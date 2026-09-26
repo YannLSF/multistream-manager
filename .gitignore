@@ -1,0 +1,20 @@
+# Binaire compilé
+multistream-manager
+
+# Données runtime
+/data/
+/logs/
+/previews/
+config.json
+error-history.json
+
+# Secrets
+.env
+.env.*
+*.key
+*.pem
+
+# Artefacts
+*.log
+*.zip
+*.sha256

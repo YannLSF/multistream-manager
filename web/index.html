@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Multistream Manager</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <h1>Multistream Manager</h1>
+        <p>MediaMTX + FFmpeg 9 — presets, compatibilité et contrôle des sorties · v0.4.2</p>
+      </div>
+      <div class="top-actions">
+        <button id="historyBtn" class="ghost">Historique</button>
+        <button id="manageBtn" class="ghost">Gestion</button>
+        <button id="logoutBtn" class="ghost hidden">Déconnexion</button>
+        <button id="refreshBtn" class="ghost">Actualiser</button>
+      </div>
+    </header>
+
+    <section id="sourceCard" class="panel source-card">
+      <div class="source-head">
+        <div>
+          <div class="eyebrow">SOURCE OBS / MEDIAMTX</div>
+          <div class="source-title"><span id="sourceDot" class="dot off"></span><span id="sourceText">Hors ligne</span></div>
+        </div>
+        <div class="source-stats">
+          <div><strong id="videoCount">0</strong><span>vidéos</span></div>
+          <div><strong id="audioCount">0</strong><span>audio</span></div>
+          <div><strong id="trackCount">0</strong><span>pistes</span></div>
+        </div>
+      </div>
+      <div id="probeError" class="error hidden"></div>
+      <div id="tracks" class="tracks empty">Aucune piste détectée.</div>
+    </section>
+
+    <section class="panel resource-card">
+      <div class="resource-head">
+        <div>
+          <div class="eyebrow">RESSOURCES</div>
+          <div class="resource-title">CPU / RAM du Manager et de ses FFmpeg</div>
+        </div>
+        <div id="resourceUpdated" class="muted small-text">—</div>
+      </div>
+      <div class="resource-grid">
+        <div class="resource-stat"><span>Manager</span><strong id="managerCPU">0 %</strong><small id="managerRAM">0 Mo</small></div>
+        <div class="resource-stat"><span>Forwards</span><strong id="forwardsCPU">0 %</strong><small id="forwardsRAM">0 Mo</small></div>
+        <div class="resource-stat"><span>Aperçus</span><strong id="previewsCPU">0 %</strong><small id="previewsRAM">0 Mo</small></div>
+        <div class="resource-stat total"><span>Total</span><strong id="totalCPU">0 %</strong><small id="totalRAM">0 Mo</small></div>
+      </div>
+    </section>
+
+    <section class="section-head">
+      <div>
+        <h2>Destinations</h2>
+        <p>Le manager compare les pistes aux contraintes du preset. L’adaptation audio peut être activée indépendamment pour chaque destination.</p>
+      </div>
+      <button id="addBtn" class="primary">+ Ajouter</button>
+    </section>
+
+    <section id="destinations" class="grid"></section>
+  </main>
+
+  <dialog id="editDialog">
+    <form id="editForm" method="dialog">
+      <div class="dialog-head">
+        <div>
+          <h3 id="dialogTitle">Ajouter une destination</h3>
+          <p>La clé reste stockée localement dans <code>/data/config.json</code> et n’est jamais renvoyée par l’API.</p>
+        </div>
+        <button type="button" id="closeDialog" class="icon">×</button>
+      </div>
+      <input type="hidden" id="destId">
+      <div class="form-grid">
+        <label>Nom
+          <input id="name" required placeholder="Kick">
+        </label>
+        <label>Preset
+          <select id="provider"></select>
+        </label>
+        <label class="wide">Serveur RTMP / RTMPS
+          <input id="server" required placeholder="rtmps://.../app">
+          <small id="serverHint" class="field-hint">URL de publication RTMP ou RTMPS de la plateforme.</small>
+        </label>
+        <label class="wide">Clé de stream
+          <input id="streamKey" type="password" autocomplete="off" placeholder="Laisser vide pour conserver la clé existante">
+          <small id="keyHint" class="field-hint"></small>
+        </label>
+        <label>Piste vidéo
+          <select id="videoTrack"></select>
+        </label>
+        <label>Piste audio
+          <select id="audioTrack"></select>
+        </label>
+      </div>
+      <div id="compatPreview" class="compat-preview"></div>
+      <div class="switch-row">
+        <label><input id="enabled" type="checkbox" checked> Destination activée</label>
+        <label><input id="autoStart" type="checkbox" checked> Démarrer automatiquement avec OBS</label>
+        <label><input id="autoAdaptAudio" type="checkbox"> Adaptation audio automatique</label>
+      </div>
+      <div id="formError" class="error hidden"></div>
+      <div class="dialog-actions">
+        <button type="button" id="cancelBtn" class="ghost">Annuler</button>
+        <button type="submit" class="primary">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="logsDialog" class="wide-dialog">
+    <div class="dialog-head">
+      <div><h3>Logs FFmpeg</h3><p id="logsName"></p></div>
+      <button type="button" id="closeLogs" class="icon">×</button>
+    </div>
+    <div class="log-toolbar">
+      <div class="log-filters">
+        <button class="small ghost active" data-log-filter="all">Tous</button>
+        <button class="small ghost" data-log-filter="warning">Avertissements <span id="warningCount">0</span></button>
+        <button class="small ghost" data-log-filter="error">Erreurs <span id="errorCount">0</span></button>
+      </div>
+    </div>
+    <div id="logsBox" class="logs-box"><div class="log-empty">Aucun log.</div></div>
+  </dialog>
+
+  <dialog id="previewDialog" class="preview-dialog">
+    <div class="dialog-head">
+      <div><h3>Aperçu local</h3><p id="previewName"></p></div>
+      <button type="button" id="closePreview" class="icon">×</button>
+    </div>
+    <div class="player-wrap">
+      <video id="previewVideo" controls playsinline muted></video>
+      <div id="previewState" class="player-state">APERÇU ARRÊTÉ</div>
+    </div>
+    <div class="preview-controls">
+      <label>Vidéo
+        <select id="previewVideoTrack"></select>
+      </label>
+      <label>Audio
+        <select id="previewAudioTrack"></select>
+      </label>
+    </div>
+    <div id="previewWarning" class="notice hidden"></div>
+    <div id="previewError" class="error hidden"></div>
+    <div class="dialog-actions">
+      <button id="stopPreview" type="button" class="danger">Arrêter l’aperçu</button>
+      <button id="startPreview" type="button" class="success">Démarrer l’aperçu</button>
+    </div>
+  </dialog>
+
+
+  <dialog id="historyDialog" class="wide-dialog">
+    <div class="dialog-head">
+      <div><h3>Historique des erreurs</h3><p>Erreurs persistantes des forwards et aperçus, même après redémarrage du Manager.</p></div>
+      <button type="button" id="closeHistory" class="icon">×</button>
+    </div>
+    <div class="history-toolbar">
+      <span id="historyCount" class="muted"></span>
+      <button id="clearHistory" type="button" class="small danger">Vider l’historique</button>
+    </div>
+    <div id="historyBox" class="history-box"><div class="log-empty">Aucune erreur enregistrée.</div></div>
+  </dialog>
+
+  <dialog id="manageDialog" class="wide-dialog">
+    <div class="dialog-head">
+      <div><h3>Gestion</h3><p>Sauvegardes, catalogue de presets et authentification.</p></div>
+      <button type="button" id="closeManage" class="icon">×</button>
+    </div>
+    <div class="manage-grid">
+      <section class="manage-section">
+        <h4>Configuration</h4>
+        <p>L’export contient les clés de stream : conserve le fichier comme un secret.</p>
+        <div class="manage-actions">
+          <button id="exportConfig" type="button" class="ghost">Exporter config.json</button>
+          <button id="importConfig" type="button" class="ghost">Importer config.json</button>
+          <input id="configFile" class="hidden" type="file" accept="application/json,.json">
+        </div>
+      </section>
+      <section class="manage-section">
+        <h4>Catalogue de presets</h4>
+        <p>Le catalogue actif est stocké dans <code>/data/presets.json</code> et peut être mis à jour sans recompiler.</p>
+        <div class="manage-actions">
+          <button id="exportPresets" type="button" class="ghost">Exporter presets.json</button>
+          <button id="importPresets" type="button" class="ghost">Importer presets.json</button>
+          <button id="reloadPresets" type="button" class="ghost">Recharger depuis /data</button>
+          <input id="presetsFile" class="hidden" type="file" accept="application/json,.json">
+        </div>
+        <div id="presetManageStatus" class="field-hint"></div>
+      </section>
+      <section class="manage-section">
+        <h4>Logs</h4>
+        <p>Les logs FFmpeg sont conservés en mémoire pour la WebUI et tournent aussi sur disque dans <code>/data/logs</code>. Les limites sont pilotables par variables d’environnement.</p>
+      </section>
+      <section class="manage-section">
+        <h4>Authentification</h4>
+        <p id="authManageStatus">Chargement…</p>
+        <p class="field-hint">Pour une exposition hors LAN/VPN, utilise HTTPS et <code>AUTH_COOKIE_SECURE=true</code>.</p>
+      </section>
+    </div>
+    <div id="manageError" class="error hidden"></div>
+  </dialog>
+
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.7.3/dist/hls.min.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
