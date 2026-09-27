@@ -35,6 +35,11 @@ type sourceProbeTarget struct {
 	Path string
 }
 
+type sourceChanges struct {
+	Online  []string
+	Offline []string
+}
+
 func normalizedSourceID(id string) string {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -94,8 +99,90 @@ func additionalSourceLabel(path, prefix string) string {
 	return label
 }
 
-func (a *App) syncSourceCatalog(paths []string, apiErr error, now time.Time) {
-	var probes []sourceProbeTarget
+func (a *App) sourceSelectionLocked(id string) (string, SourceState, []Track, bool) {
+	id = normalizedSourceID(id)
+
+	if id == primarySourceID {
+		return a.sourcePath,
+			a.source,
+			append([]Track(nil), a.tracks...),
+			true
+	}
+
+	src := a.sources[id]
+	if src == nil {
+		return "", SourceState{}, nil, false
+	}
+
+	return src.Path,
+		src.State,
+		append([]Track(nil), src.Tracks...),
+		true
+}
+
+func (a *App) sourceOnlineLocked(id string) bool {
+	id = normalizedSourceID(id)
+
+	if id == primarySourceID {
+		return a.source.Online && a.sourcePath != ""
+	}
+
+	src := a.sources[id]
+	return src != nil && src.State.Online && src.Path != ""
+}
+
+func (a *App) resetSourceRuntimes(sourceID string) {
+	sourceID = normalizedSourceID(sourceID)
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	for _, d := range a.config.Destinations {
+		if normalizedSourceID(d.SourceID) != sourceID {
+			continue
+		}
+
+		rt := a.getRuntimeLocked(d.ID)
+		rt.ManualStopped = false
+		rt.RetryCount = 0
+		rt.NextRetry = time.Time{}
+		rt.RetryIn = 0
+	}
+}
+
+func (a *App) stopOutputsForSource(sourceID string) {
+	sourceID = normalizedSourceID(sourceID)
+
+	a.mu.Lock()
+
+	forwardIDs := make([]string, 0)
+	for id, ps := range a.processes {
+		if ps != nil && ps.sourceID == sourceID {
+			forwardIDs = append(forwardIDs, id)
+		}
+	}
+
+	previewIDs := make([]string, 0)
+	for id, ps := range a.previews {
+		if ps != nil && ps.sourceID == sourceID {
+			previewIDs = append(previewIDs, id)
+		}
+	}
+
+	a.mu.Unlock()
+
+	for _, id := range previewIDs {
+		_ = a.stopPreview(id)
+	}
+
+	for _, id := range forwardIDs {
+		_ = a.stopDestination(id, false)
+	}
+}
+
+func (a *App) syncSourceCatalog(paths []string, apiErr error, now time.Time) sourceChanges {
+	changes := sourceChanges{}
+	probes := make([]sourceProbeTarget, 0)
 
 	a.mu.Lock()
 
@@ -113,8 +200,6 @@ func (a *App) syncSourceCatalog(paths []string, apiErr error, now time.Time) {
 		a.sources[primarySourceID] = primary
 	}
 
-	// La source historique app/... reste la source principale et son path
-	// réel n'est jamais exposé par l'API publique.
 	primary.Path = a.sourcePath
 	primary.State = a.source
 	primary.Tracks = append([]Track(nil), a.tracks...)
@@ -126,12 +211,18 @@ func (a *App) syncSourceCatalog(paths []string, apiErr error, now time.Time) {
 			if id == primarySourceID {
 				continue
 			}
+
+			if src.State.Online {
+				changes.Offline = append(changes.Offline, id)
+			}
+
 			src.State.Online = false
 			src.State.ProbeError = "MediaMTX API inaccessible"
 			src.State.LastUpdated = now
 		}
+
 		a.mu.Unlock()
-		return
+		return changes
 	}
 
 	seen := map[string]bool{
@@ -139,8 +230,6 @@ func (a *App) syncSourceCatalog(paths []string, apiErr error, now time.Time) {
 	}
 
 	for _, path := range paths {
-		// Les paths app/... appartiennent tous au namespace principal.
-		// Un seul est sélectionné par primarySourcePath().
 		if strings.HasPrefix(path, a.settings.MTXPathPrefix) {
 			continue
 		}
@@ -154,8 +243,6 @@ func (a *App) syncSourceCatalog(paths []string, apiErr error, now time.Time) {
 			continue
 		}
 
-		// Pour les sources additionnelles, le path MediaMTX est aussi
-		// l'identifiant stable. Exemple : sources/obs2.
 		id := path
 		seen[id] = true
 
@@ -182,6 +269,7 @@ func (a *App) syncSourceCatalog(paths []string, apiErr error, now time.Time) {
 
 		if !wasOnline || pathChanged {
 			src.State.Since = now
+			changes.Online = append(changes.Online, id)
 		}
 
 		if src.State.ProbeError == "MediaMTX API inaccessible" {
@@ -214,6 +302,10 @@ func (a *App) syncSourceCatalog(paths []string, apiErr error, now time.Time) {
 			continue
 		}
 
+		if src.State.Online {
+			changes.Offline = append(changes.Offline, id)
+		}
+
 		src.State.Online = false
 		src.State.ProbeError = ""
 		src.State.LastUpdated = now
@@ -221,14 +313,12 @@ func (a *App) syncSourceCatalog(paths []string, apiErr error, now time.Time) {
 
 	a.mu.Unlock()
 
-	// Les ffprobe sont effectués hors verrou.
 	for _, target := range probes {
 		tracks, probeErr := a.probeTracks(target.Path)
 
 		a.mu.Lock()
 		src := a.sources[target.ID]
 
-		// La source a pu disparaître pendant le probe.
 		if src == nil || src.Path != target.Path || !src.State.Online {
 			a.mu.Unlock()
 			continue
@@ -248,6 +338,8 @@ func (a *App) syncSourceCatalog(paths []string, apiErr error, now time.Time) {
 
 		a.mu.Unlock()
 	}
+
+	return changes
 }
 
 func (a *App) publicSourcesLocked() []SourceStatus {

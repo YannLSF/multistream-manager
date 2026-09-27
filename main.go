@@ -250,8 +250,9 @@ func (r *ringLog) Tail(n int) string {
 }
 
 type procState struct {
-	cmd *exec.Cmd
-	log *ringLog
+	cmd      *exec.Cmd
+	log      *ringLog
+	sourceID string
 }
 
 type App struct {
@@ -462,18 +463,34 @@ func (a *App) loadConfig() error {
 	if err := json.Unmarshal(b, &a.config); err != nil {
 		return err
 	}
+
+	migrated := false
+
 	for i := range a.config.Destinations {
 		d := &a.config.Destinations[i]
+
 		if d.ID == "" {
 			d.ID = slugID(d.Name)
+			migrated = true
 		}
+
+		sourceID := normalizedSourceID(d.SourceID)
+		if d.SourceID != sourceID {
+			d.SourceID = sourceID
+			migrated = true
+		}
+
 		if _, ok := a.runtime[d.ID]; !ok {
 			a.runtime[d.ID] = &RuntimeState{}
 		}
 	}
+
+	if migrated {
+		return a.saveConfigLocked()
+	}
+
 	return nil
 }
-
 func (a *App) saveConfigLocked() error {
 	b, err := json.MarshalIndent(a.config, "", "  ")
 	if err != nil {
@@ -526,8 +543,10 @@ func (a *App) pollOnce() {
 	now := time.Now()
 
 	a.mu.Lock()
+
 	wasOnline := a.source.Online
 	oldPath := a.sourcePath
+
 	if err != nil {
 		a.source.Online = false
 		a.source.ProbeError = "MediaMTX API inaccessible"
@@ -536,33 +555,32 @@ func (a *App) pollOnce() {
 		a.sourcePath = path
 		a.source.ProbeError = ""
 	}
-	if online && (!wasOnline || oldPath != path) {
-		a.source.Since = now
-		for _, rt := range a.runtime {
-			rt.ManualStopped = false
-			rt.RetryCount = 0
-			rt.NextRetry = time.Time{}
-			rt.RetryIn = 0
-		}
-	}
-	a.source.LastUpdated = now
-	shouldStop := wasOnline && !online
-	a.mu.Unlock()
 
-	if shouldStop {
-		a.stopAllPreviews()
-		a.stopAll(false)
+	primaryChanged := wasOnline && online && oldPath != path
+	primaryCameOnline := online && (!wasOnline || oldPath != path)
+	primaryWentOffline := wasOnline && !online
+
+	if primaryCameOnline {
+		a.source.Since = now
 	}
+
+	a.source.LastUpdated = now
+	a.mu.Unlock()
 
 	if online {
 		a.mu.Lock()
-		shouldProbe := a.lastProbedPath != path || len(a.tracks) == 0 || time.Since(a.lastProbeAt) >= 30*time.Second
+		shouldProbe := a.lastProbedPath != path ||
+			len(a.tracks) == 0 ||
+			time.Since(a.lastProbeAt) >= 30*time.Second
 		a.mu.Unlock()
+
 		if shouldProbe {
 			tracks, probeErr := a.probeTracks(path)
+
 			a.mu.Lock()
 			a.lastProbeAt = time.Now()
 			a.lastProbedPath = path
+
 			if probeErr != nil {
 				a.source.ProbeError = shortErr(probeErr)
 			} else {
@@ -571,20 +589,40 @@ func (a *App) pollOnce() {
 				a.source.VideoCount, a.source.AudioCount = countTracks(tracks)
 				a.source.ProbeError = ""
 			}
+
 			a.mu.Unlock()
 		}
-		a.ensureAutoStarts()
 	} else {
 		a.mu.Lock()
 		a.tracks = nil
-		a.source.TrackCount, a.source.VideoCount, a.source.AudioCount = 0, 0, 0
+		a.source.TrackCount = 0
+		a.source.VideoCount = 0
+		a.source.AudioCount = 0
 		a.lastProbedPath = ""
 		a.mu.Unlock()
 	}
-	a.syncSourceCatalog(readyPaths, err, now)
+
+	changes := a.syncSourceCatalog(readyPaths, err, now)
+
+	if primaryWentOffline || primaryChanged {
+		changes.Offline = append(changes.Offline, primarySourceID)
+	}
+
+	if primaryCameOnline {
+		changes.Online = append(changes.Online, primarySourceID)
+	}
+
+	for _, sourceID := range changes.Offline {
+		a.stopOutputsForSource(sourceID)
+	}
+
+	for _, sourceID := range changes.Online {
+		a.resetSourceRuntimes(sourceID)
+	}
+
+	a.ensureAutoStarts()
 	a.sampleResources()
 }
-
 func (a *App) fetchSourcePath() (string, bool, error) {
 	client := &http.Client{Timeout: 1500 * time.Millisecond}
 	resp, err := client.Get(a.settings.MTXAPI + "/v3/paths/list")
@@ -800,25 +838,39 @@ func countTracks(ts []Track) (int, int) {
 
 func (a *App) ensureAutoStarts() {
 	a.mu.Lock()
-	if !a.source.Online || a.shuttingDown {
+
+	if a.shuttingDown {
 		a.mu.Unlock()
 		return
 	}
+
 	now := time.Now()
 	ids := []string{}
+
 	for _, d := range a.config.Destinations {
+		sourcePath, sourceState, tracks, ok := a.sourceSelectionLocked(d.SourceID)
+		if !ok || !sourceState.Online || sourcePath == "" || len(tracks) == 0 {
+			continue
+		}
+
 		rt := a.getRuntimeLocked(d.ID)
 		retryReady := rt.NextRetry.IsZero() || !now.Before(rt.NextRetry)
-		if d.Enabled && d.AutoStart && !rt.Running && !rt.ManualStopped && retryReady {
+
+		if d.Enabled &&
+			d.AutoStart &&
+			!rt.Running &&
+			!rt.ManualStopped &&
+			retryReady {
 			ids = append(ids, d.ID)
 		}
 	}
+
 	a.mu.Unlock()
+
 	for _, id := range ids {
 		_ = a.startDestination(id, false)
 	}
 }
-
 func (a *App) getRuntimeLocked(id string) *RuntimeState {
 	if a.runtime[id] == nil {
 		a.runtime[id] = &RuntimeState{}
@@ -837,129 +889,195 @@ func (a *App) findDestLocked(id string) (int, *Destination) {
 
 func (a *App) startDestination(id string, manual bool) error {
 	a.mu.Lock()
+
 	_, dptr := a.findDestLocked(id)
 	if dptr == nil {
 		a.mu.Unlock()
 		return fmt.Errorf("destination not found")
 	}
+
 	d := *dptr
+	d.SourceID = normalizedSourceID(d.SourceID)
+
 	rt := a.getRuntimeLocked(id)
 	if rt.Running {
 		a.mu.Unlock()
 		return nil
 	}
-	if !a.source.Online || a.sourcePath == "" {
+
+	sourceID := d.SourceID
+	sourcePath, sourceState, tracks, ok := a.sourceSelectionLocked(sourceID)
+
+	if !ok || !sourceState.Online || sourcePath == "" {
 		a.mu.Unlock()
-		return fmt.Errorf("source is offline")
+		return fmt.Errorf("source %q is offline", sourceID)
 	}
+
 	if !d.Enabled {
 		a.mu.Unlock()
 		return fmt.Errorf("destination is disabled")
 	}
+
 	if d.Server == "" || d.StreamKey == "" {
 		a.mu.Unlock()
 		return fmt.Errorf("server or stream key missing")
 	}
+
 	if manual {
 		rt.ManualStopped = false
 		rt.RetryCount = 0
 		rt.NextRetry = time.Time{}
 		rt.RetryIn = 0
 	}
-	sourcePath := a.sourcePath
+
+	video := findTrackByOrder(tracks, "video", d.VideoTrack)
+	audio := findTrackByOrder(tracks, "audio", d.AudioTrack)
+
 	src := a.sourceURL(sourcePath)
 	out := strings.TrimRight(d.Server, "/") + "/" + strings.TrimLeft(d.StreamKey, "/")
+
 	a.mu.Unlock()
 
-	a.mu.Lock()
-	video := findTrackByOrder(a.tracks, "video", d.VideoTrack)
-	audio := findTrackByOrder(a.tracks, "audio", d.AudioTrack)
-	a.mu.Unlock()
-
-	args, audioPlan, err := buildDestinationFFmpegArgs(src, out, d, presetByID(d.Provider), video, audio)
+	args, audioPlan, err := buildDestinationFFmpegArgs(
+		src,
+		out,
+		d,
+		presetByID(d.Provider),
+		video,
+		audio,
+	)
 	if err != nil {
 		message := shortErr(err)
+
 		a.mu.Lock()
 		rt := a.getRuntimeLocked(id)
 		rt.LastError = message
 		a.mu.Unlock()
+
 		a.recordError("forward", id, d.Name, message, 0)
 		return err
 	}
+
 	cmd := exec.Command(a.settings.FFmpegBin, args...)
+
 	lines := a.settings.LogRingLines
 	if lines <= 0 {
 		lines = 500
 	}
+
 	logger := newRingLog(lines, d.StreamKey, sourcePath)
+
 	if a.settings.DataDir != "" && a.settings.LogMaxBytes > 0 {
-		logger = newPersistentRingLog(lines, filepath.Join(a.settings.DataDir, "logs", slugID(d.ID)+".log"), a.settings.LogMaxBytes, a.settings.LogBackups, d.StreamKey, sourcePath)
+		logger = newPersistentRingLog(
+			lines,
+			filepath.Join(a.settings.DataDir, "logs", slugID(d.ID)+".log"),
+			a.settings.LogMaxBytes,
+			a.settings.LogBackups,
+			d.StreamKey,
+			sourcePath,
+		)
 	}
+
 	cmd.Stdout = io.Discard
 	cmd.Stderr = logger
+
 	if err := cmd.Start(); err != nil {
 		message := shortErr(err)
+
 		a.mu.Lock()
 		rt := a.getRuntimeLocked(id)
 		rt.LastError = message
 		a.mu.Unlock()
+
 		a.recordError("forward", id, d.Name, message, 0)
 		return err
 	}
 
 	a.mu.Lock()
+
 	rt = a.getRuntimeLocked(id)
 	rt.Running = true
 	rt.PID = cmd.Process.Pid
 	rt.StartedAt = time.Now()
 	rt.LastError = ""
-	a.processes[id] = &procState{cmd: cmd, log: logger}
+
+	a.processes[id] = &procState{
+		cmd:      cmd,
+		log:      logger,
+		sourceID: sourceID,
+	}
+
 	a.mu.Unlock()
-	log.Printf("destination %s started (pid %d, audio %s)", d.Name, cmd.Process.Pid, audioPlan.Mode)
+
+	log.Printf(
+		"destination %s started from source %s (pid %d, audio %s)",
+		d.Name,
+		sourceID,
+		cmd.Process.Pid,
+		audioPlan.Mode,
+	)
 
 	go func() {
 		err := cmd.Wait()
 		rawLogs := logger.String()
 
-		// FFmpeg can exit a fraction of a second before the MediaMTX poller sees
-		// OBS disappear. Give the source state one poll cycle to catch up before
-		// treating the demuxer's Input/output error as a destination failure.
+		// FFmpeg can exit just before the MediaMTX poller sees the selected
+		// source disappear. Give that source one poll cycle to catch up.
 		if err != nil && isSourceDemuxInputClosed(rawLogs) {
 			grace := a.settings.PollInterval + 500*time.Millisecond
+
 			if grace < 750*time.Millisecond {
 				grace = 750 * time.Millisecond
 			}
+
 			if grace > 15*time.Second {
 				grace = 15 * time.Second
 			}
+
 			deadline := time.Now().Add(grace)
+
 			for time.Now().Before(deadline) {
 				a.mu.Lock()
-				offline := !a.source.Online
+				offline := !a.sourceOnlineLocked(sourceID)
 				rtNow := a.getRuntimeLocked(id)
-				stoppingNow := rtNow.Stopping || rtNow.ManualStopped || a.shuttingDown
+				stoppingNow := rtNow.Stopping ||
+					rtNow.ManualStopped ||
+					a.shuttingDown
 				a.mu.Unlock()
+
 				if offline || stoppingNow {
 					break
 				}
+
 				time.Sleep(50 * time.Millisecond)
 			}
 		}
 
 		var historyMessage string
 		var historyRetry int
+
 		a.mu.Lock()
+
 		rt := a.getRuntimeLocked(id)
 		stopping := rt.Stopping
 		uptime := time.Since(rt.StartedAt)
+
 		rt.Running = false
 		rt.PID = 0
 		rt.Stopping = false
 		rt.LastExit = time.Now()
 		rt.LastLogs = rawLogs
 		rt.RetryIn = 0
-		sourceEnded := err != nil && isSourceDemuxInputClosed(rawLogs) && !a.source.Online
-		if sourceEnded || rt.ManualStopped || stopping || a.shuttingDown {
+
+		sourceEnded := err != nil &&
+			isSourceDemuxInputClosed(rawLogs) &&
+			!a.sourceOnlineLocked(sourceID)
+
+		if sourceEnded ||
+			rt.ManualStopped ||
+			stopping ||
+			a.shuttingDown {
+
 			rt.LastError = ""
 			rt.RetryCount = 0
 			rt.NextRetry = time.Time{}
@@ -967,23 +1085,35 @@ func (a *App) startDestination(id string, manual bool) error {
 			if uptime >= 30*time.Second {
 				rt.RetryCount = 0
 			}
+
 			rt.RetryCount++
+
 			delay := retryDelay(rt.RetryCount)
 			rt.NextRetry = time.Now().Add(delay)
 			rt.LastError = summarizeFFmpegError(err, rt.LastLogs)
+
 			historyMessage = rt.LastError
 			historyRetry = rt.RetryCount
 		}
+
 		delete(a.processes, id)
 		a.mu.Unlock()
+
 		if historyMessage != "" {
-			a.recordError("forward", id, d.Name, historyMessage, historyRetry)
+			a.recordError(
+				"forward",
+				id,
+				d.Name,
+				historyMessage,
+				historyRetry,
+			)
 		}
+
 		log.Printf("destination %s stopped", d.Name)
 	}()
+
 	return nil
 }
-
 func (a *App) stopDestination(id string, manual bool) error {
 	a.mu.Lock()
 	rt := a.getRuntimeLocked(id)
@@ -1128,8 +1258,9 @@ func (a *App) snapshotStatus() AppStatus {
 				rt.RetryIn = 0
 			}
 		}
-		video := findTrackByOrder(a.tracks, "video", d.VideoTrack)
-		audio := findTrackByOrder(a.tracks, "audio", d.AudioTrack)
+		_, _, sourceTracks, _ := a.sourceSelectionLocked(d.SourceID)
+		video := findTrackByOrder(sourceTracks, "video", d.VideoTrack)
+		audio := findTrackByOrder(sourceTracks, "audio", d.AudioTrack)
 		compat := compatibilityForSetting(presetByID(d.Provider), video, audio, d.AutoAdaptAudio)
 		rawLogs := rt.LastLogs
 		if ps := a.processes[d.ID]; ps != nil && ps.log != nil {
@@ -1178,6 +1309,8 @@ func (a *App) destinationsHandler(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		d.SourceID = normalizedSourceID(d.SourceID)
+
 		if d.Provider == "" {
 			d.Provider = "custom"
 		}
@@ -1344,6 +1477,10 @@ func (a *App) destinationHandler(w http.ResponseWriter, r *http.Request) {
 		if in.StreamKey == "" {
 			in.StreamKey = old.StreamKey
 		}
+		if strings.TrimSpace(in.SourceID) == "" {
+			in.SourceID = old.SourceID
+		}
+		in.SourceID = normalizedSourceID(in.SourceID)
 		if in.Provider == "" {
 			in.Provider = old.Provider
 		}

@@ -19,6 +19,7 @@ type previewProc struct {
 	cmd        *exec.Cmd
 	log        *ringLog
 	dir        string
+	sourceID   string
 	videoTrack int
 	audioTrack int
 	startedAt  time.Time
@@ -31,6 +32,7 @@ type previewProc struct {
 type PreviewState struct {
 	Running    bool             `json:"running"`
 	Ready      bool             `json:"ready"`
+	SourceID   string           `json:"source_id,omitempty"`
 	VideoTrack int              `json:"video_track,omitempty"`
 	AudioTrack int              `json:"audio_track,omitempty"`
 	StartedAt  time.Time        `json:"started_at,omitempty"`
@@ -52,6 +54,7 @@ func (a *App) previewStateLocked(id string) PreviewState {
 	return PreviewState{
 		Running:    true,
 		Ready:      ps.ready,
+		SourceID:   ps.sourceID,
 		VideoTrack: ps.videoTrack,
 		AudioTrack: ps.audioTrack,
 		StartedAt:  ps.startedAt,
@@ -62,40 +65,61 @@ func (a *App) previewStateLocked(id string) PreviewState {
 
 func (a *App) startPreview(id string, videoOrder, audioOrder int) (PreviewState, error) {
 	a.mu.Lock()
-	if !a.source.Online || a.sourcePath == "" {
-		a.mu.Unlock()
-		return PreviewState{}, fmt.Errorf("source is offline")
-	}
+
 	_, d := a.findDestLocked(id)
 	if d == nil {
 		a.mu.Unlock()
 		return PreviewState{}, fmt.Errorf("destination not found")
 	}
-	video := findTrackByOrder(a.tracks, "video", videoOrder)
-	audio := findTrackByOrder(a.tracks, "audio", audioOrder)
+
+	sourceID := normalizedSourceID(d.SourceID)
+	sourcePath, sourceState, tracks, ok := a.sourceSelectionLocked(sourceID)
+
+	if !ok || !sourceState.Online || sourcePath == "" {
+		a.mu.Unlock()
+		return PreviewState{}, fmt.Errorf("source %q is offline", sourceID)
+	}
+
+	video := findTrackByOrder(tracks, "video", videoOrder)
+	audio := findTrackByOrder(tracks, "audio", audioOrder)
+
 	if video == nil || audio == nil {
 		a.mu.Unlock()
-		return PreviewState{}, fmt.Errorf("selected preview track is not available")
+		return PreviewState{}, fmt.Errorf(
+			"selected preview track is not available",
+		)
 	}
+
 	if !strings.EqualFold(audio.CodecName, "aac") {
 		a.mu.Unlock()
-		return PreviewState{}, fmt.Errorf("preview HLS in copy mode currently requires AAC audio")
+		return PreviewState{}, fmt.Errorf(
+			"preview HLS in copy mode currently requires AAC audio",
+		)
 	}
+
 	if a.previewErrors == nil {
 		a.previewErrors = make(map[string]string)
 	}
+
 	delete(a.previewErrors, id)
+
 	old := a.previews[id]
-	if old != nil && old.videoTrack == videoOrder && old.audioTrack == audioOrder && old.ready {
+
+	if old != nil &&
+		old.sourceID == sourceID &&
+		old.videoTrack == videoOrder &&
+		old.audioTrack == audioOrder &&
+		old.ready {
+
 		state := a.previewStateLocked(id)
 		a.mu.Unlock()
 		return state, nil
 	}
-	destinationName := d.Name
-	sourcePath := a.sourcePath
-	src := a.sourceURL(sourcePath)
-	a.mu.Unlock()
 
+	destinationName := d.Name
+	src := a.sourceURL(sourcePath)
+
+	a.mu.Unlock()
 	if old != nil {
 		_ = a.stopPreview(id)
 		deadline := time.Now().Add(2 * time.Second)
@@ -146,6 +170,7 @@ func (a *App) startPreview(id string, videoOrder, audioOrder int) (PreviewState,
 		cmd:        cmd,
 		log:        logger,
 		dir:        dir,
+		sourceID:   sourceID,
 		videoTrack: videoOrder,
 		audioTrack: audioOrder,
 		startedAt:  time.Now(),
@@ -342,23 +367,39 @@ func (a *App) compatibilityHandler(w http.ResponseWriter, r *http.Request) {
 		methodNotAllowed(w)
 		return
 	}
+
 	var req struct {
+		SourceID       string `json:"source_id"`
 		Provider       string `json:"provider"`
 		VideoTrack     int    `json:"video_track"`
 		AudioTrack     int    `json:"audio_track"`
 		AutoAdaptAudio bool   `json:"auto_adapt_audio"`
 	}
-	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+
+	if err := json.NewDecoder(
+		io.LimitReader(r.Body, 1<<20),
+	).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	a.mu.Lock()
-	video := findTrackByOrder(a.tracks, "video", req.VideoTrack)
-	audio := findTrackByOrder(a.tracks, "audio", req.AudioTrack)
-	a.mu.Unlock()
-	writeJSON(w, http.StatusOK, compatibilityForSetting(presetByID(req.Provider), video, audio, req.AutoAdaptAudio))
-}
 
+	a.mu.Lock()
+	_, _, tracks, _ := a.sourceSelectionLocked(req.SourceID)
+	video := findTrackByOrder(tracks, "video", req.VideoTrack)
+	audio := findTrackByOrder(tracks, "audio", req.AudioTrack)
+	a.mu.Unlock()
+
+	writeJSON(
+		w,
+		http.StatusOK,
+		compatibilityForSetting(
+			presetByID(req.Provider),
+			video,
+			audio,
+			req.AutoAdaptAudio,
+		),
+	)
+}
 func findTrackByOrder(tracks []Track, kind string, order int) *Track {
 	for i := range tracks {
 		t := &tracks[i]
