@@ -36,6 +36,7 @@ type Settings struct {
 	MTXAPI            string
 	MTXRTMPBase       string
 	MTXPathPrefix     string
+	MTXSourcesPrefix  string
 	PollInterval      time.Duration
 	FFmpegBin         string
 	FFprobeBin        string
@@ -57,6 +58,7 @@ type Destination struct {
 	AutoStart      bool   `json:"auto_start"`
 	Server         string `json:"server"`
 	StreamKey      string `json:"stream_key"`
+	SourceID       string `json:"source_id,omitempty"`
 	VideoTrack     int    `json:"video_track"`
 	AudioTrack     int    `json:"audio_track"`
 	AutoAdaptAudio bool   `json:"auto_adapt_audio"`
@@ -74,6 +76,7 @@ type PublicDestination struct {
 	AutoStart      bool   `json:"auto_start"`
 	Server         string `json:"server"`
 	KeyConfigured  bool   `json:"key_configured"`
+	SourceID       string `json:"source_id"`
 	VideoTrack     int    `json:"video_track"`
 	AudioTrack     int    `json:"audio_track"`
 	AutoAdaptAudio bool   `json:"auto_adapt_audio"`
@@ -135,6 +138,7 @@ type DestinationStatus struct {
 type AppStatus struct {
 	Source       SourceState         `json:"source"`
 	Tracks       []Track             `json:"tracks"`
+	Sources      []SourceStatus      `json:"sources"`
 	Presets      []Preset            `json:"presets"`
 	Destinations []DestinationStatus `json:"destinations"`
 	Resources    ResourceSummary     `json:"resources"`
@@ -259,6 +263,7 @@ type App struct {
 	source            SourceState
 	sourcePath        string
 	tracks            []Track
+	sources           map[string]*sourceEntry
 	runtime           map[string]*RuntimeState
 	processes         map[string]*procState
 	previews          map[string]*previewProc
@@ -295,6 +300,7 @@ func main() {
 	app := &App{
 		settings:          settings,
 		auth:              auth,
+		sources:           make(map[string]*sourceEntry),
 		runtime:           make(map[string]*RuntimeState),
 		processes:         make(map[string]*procState),
 		previews:          make(map[string]*previewProc),
@@ -402,6 +408,7 @@ func loadSettings() Settings {
 		MTXAPI:            strings.TrimRight(envDefault("MTX_API", "http://127.0.0.1:9999"), "/"),
 		MTXRTMPBase:       strings.TrimRight(envDefault("MTX_RTMP_BASE", "rtmp://127.0.0.1:1938"), "/"),
 		MTXPathPrefix:     envDefault("MTX_PATH_PREFIX", "app/"),
+		MTXSourcesPrefix:  envDefault("MTX_SOURCES_PREFIX", "sources/"),
 		PollInterval:      poll,
 		FFmpegBin:         envDefault("FFMPEG_BIN", "ffmpeg"),
 		FFprobeBin:        envDefault("FFPROBE_BIN", "ffprobe"),
@@ -514,7 +521,8 @@ func (a *App) monitor(ctx context.Context) {
 }
 
 func (a *App) pollOnce() {
-	path, online, err := a.fetchSourcePath()
+	readyPaths, err := a.fetchReadyPaths()
+	path, online := a.primarySourcePath(readyPaths)
 	now := time.Now()
 
 	a.mu.Lock()
@@ -573,6 +581,7 @@ func (a *App) pollOnce() {
 		a.lastProbedPath = ""
 		a.mu.Unlock()
 	}
+	a.syncSourceCatalog(readyPaths, err, now)
 	a.sampleResources()
 }
 
@@ -1102,13 +1111,13 @@ func shortErr(err error) string {
 }
 
 func (a *App) publicDestination(d Destination) PublicDestination {
-	return PublicDestination{ID: d.ID, Name: d.Name, Provider: d.Provider, Enabled: d.Enabled, AutoStart: d.AutoStart, Server: d.Server, KeyConfigured: d.StreamKey != "", VideoTrack: d.VideoTrack, AudioTrack: d.AudioTrack, AutoAdaptAudio: d.AutoAdaptAudio}
+	return PublicDestination{ID: d.ID, Name: d.Name, Provider: d.Provider, Enabled: d.Enabled, AutoStart: d.AutoStart, Server: d.Server, KeyConfigured: d.StreamKey != "", SourceID: normalizedSourceID(d.SourceID), VideoTrack: d.VideoTrack, AudioTrack: d.AudioTrack, AutoAdaptAudio: d.AutoAdaptAudio}
 }
 
 func (a *App) snapshotStatus() AppStatus {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	out := AppStatus{Source: a.source, Tracks: append([]Track(nil), a.tracks...), Presets: presetCatalogSnapshot(), Resources: a.resources, AuthEnabled: a.auth != nil && a.auth.Enabled(), AuthUsername: a.settings.AuthUsername}
+	out := AppStatus{Source: a.source, Tracks: append([]Track(nil), a.tracks...), Sources: a.publicSourcesLocked(), Presets: presetCatalogSnapshot(), Resources: a.resources, AuthEnabled: a.auth != nil && a.auth.Enabled(), AuthUsername: a.settings.AuthUsername}
 	for _, d := range a.config.Destinations {
 		rt := *a.getRuntimeLocked(d.ID)
 		if !rt.Running && !rt.NextRetry.IsZero() {
