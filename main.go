@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	appVersion     = "0.4.2"
+	appVersion     = "0.4.3-dev"
 	enhancedCodecs = "ac-3,av01,avc1,ec-3,fLaC,hvc1,.mp3,mp4a,Opus,vp09"
 )
 
@@ -337,6 +337,30 @@ func main() {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(b)
 	})
+	mux.HandleFunc("/destinations/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w)
+			return
+		}
+
+		rest := strings.Trim(strings.TrimPrefix(r.URL.Path, "/destinations/"), "/")
+		parts := strings.Split(rest, "/")
+		if len(parts) != 2 || parts[0] == "" || parts[1] != "edit" {
+			http.NotFound(w, r)
+			return
+		}
+
+		b, err := fs.ReadFile(sub, "edit.html")
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(b)
+	})
+
 	mux.Handle("/", http.FileServer(http.FS(sub)))
 
 	srv := &http.Server{Addr: settings.Bind, Handler: loggingMiddleware(app.authMiddleware(mux)), ReadHeaderTimeout: 5 * time.Second}
@@ -1275,6 +1299,20 @@ func (a *App) destinationHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.Method {
+	case http.MethodGet:
+		a.mu.Lock()
+		_, d := a.findDestLocked(id)
+		if d == nil {
+			a.mu.Unlock()
+			http.NotFound(w, r)
+			return
+		}
+		out := a.publicDestination(*d)
+		a.mu.Unlock()
+
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, http.StatusOK, out)
+
 	case http.MethodPut:
 		var in Destination
 		if err := decodeJSON(r, &in); err != nil {

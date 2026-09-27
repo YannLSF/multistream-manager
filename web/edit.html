@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Cache-Control" content="no-store">
+  <title>Éditer une destination — Multistream Manager</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <h1>Multistream Manager</h1>
+        <p>Édition directe d’une destination · v0.4.3-dev</p>
+      </div>
+      <div class="top-actions">
+        <a class="ghost edit-link" href="/">← Tableau de bord</a>
+      </div>
+    </header>
+
+    <section class="panel editor-panel">
+      <div class="editor-head">
+        <div>
+          <div class="eyebrow">DESTINATION</div>
+          <h2 id="pageTitle">Chargement…</h2>
+          <p>Cette page peut être ajoutée aux favoris pour modifier rapidement cette destination.</p>
+        </div>
+      </div>
+
+      <div id="loadError" class="error hidden"></div>
+
+      <form id="editPageForm" class="hidden">
+        <div class="form-grid">
+          <label>
+            Nom
+            <input id="name" required>
+          </label>
+
+          <label>
+            Preset
+            <select id="provider"></select>
+          </label>
+
+          <label class="wide">
+            Serveur RTMP / RTMPS
+            <input id="server" required placeholder="rtmps://.../app">
+            <small id="serverHint" class="field-hint"></small>
+          </label>
+
+          <label class="wide">
+            Clé de stream
+            <input
+              id="streamKey"
+              type="password"
+              autocomplete="off"
+              placeholder="Laisser vide pour conserver la clé existante">
+            <small id="keyHint" class="field-hint"></small>
+          </label>
+
+          <label>
+            Piste vidéo
+            <select id="videoTrack"></select>
+          </label>
+
+          <label>
+            Piste audio
+            <select id="audioTrack"></select>
+          </label>
+        </div>
+
+        <div class="switch-row">
+          <label>
+            <input id="enabled" type="checkbox">
+            Destination activée
+          </label>
+
+          <label>
+            <input id="autoStart" type="checkbox">
+            Démarrer automatiquement avec OBS
+          </label>
+
+          <label>
+            <input id="autoAdaptAudio" type="checkbox">
+            Adaptation audio automatique
+          </label>
+        </div>
+
+        <div id="formError" class="error hidden"></div>
+        <div id="saveSuccess" class="notice hidden"></div>
+
+        <div class="editor-actions">
+          <a class="ghost edit-link" href="/">Retour</a>
+          <button type="submit" class="primary">Enregistrer</button>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <script src="/edit.js"></script>
+</body>
+</html>

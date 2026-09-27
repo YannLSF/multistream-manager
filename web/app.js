@@ -165,6 +165,7 @@ function render(){
           ? `<button class="small danger" onclick="stopDest('${esc(d.id)}')">Arrêter</button>`
           : `<button class="small success" ${!canStart?'disabled':''} onclick="startDest('${esc(d.id)}')">Démarrer</button>`}
         <button class="small ghost" onclick="editDest('${esc(d.id)}')">Modifier</button>
+        <a class="small ghost edit-link" href="/destinations/${encodeURIComponent(d.id)}/edit" target="_blank" rel="noopener">Éditer ↗</a>
         <button class="small ghost logs-btn" onclick="showLogs('${esc(d.id)}')">Logs ${logBadge}</button>
         <button class="small danger" onclick="deleteDest('${esc(d.id)}')">Supprimer</button>
       </div>

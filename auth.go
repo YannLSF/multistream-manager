@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -287,7 +288,8 @@ func (app *App) authMiddleware(next http.Handler) http.Handler {
 			writeError(w, http.StatusUnauthorized, "authentication required")
 			return
 		}
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		target := "/login?next=" + url.QueryEscape(r.URL.RequestURI())
+		http.Redirect(w, r, target, http.StatusSeeOther)
 	})
 }
 
