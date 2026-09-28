@@ -42,6 +42,12 @@
             <select id="provider"></select>
           </label>
 
+          <label>
+            Source
+            <select id="sourceId"></select>
+            <small id="sourceHint" class="field-hint"></small>
+          </label>
+
           <label class="wide">
             Serveur RTMP / RTMPS
             <input id="server" required placeholder="rtmps://.../app">
@@ -68,6 +74,8 @@
             <select id="audioTrack"></select>
           </label>
         </div>
+
+        <div id="compatPreview" class="compat-preview"></div>
 
         <div class="switch-row">
           <label>

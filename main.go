@@ -1377,6 +1377,100 @@ func (a *App) destinationHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 			return
+		case "toggle-enabled":
+			if r.Method != http.MethodPost {
+				methodNotAllowed(w)
+				return
+			}
+
+			a.mu.Lock()
+			_, d := a.findDestLocked(id)
+			if d == nil {
+				a.mu.Unlock()
+				http.NotFound(w, r)
+				return
+			}
+
+			oldEnabled := d.Enabled
+			d.Enabled = !d.Enabled
+
+			if err := a.saveConfigLocked(); err != nil {
+				d.Enabled = oldEnabled
+				a.mu.Unlock()
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+
+			enabled := d.Enabled
+			autoStart := d.AutoStart
+
+			if enabled {
+				rt := a.getRuntimeLocked(id)
+				rt.ManualStopped = false
+				rt.RetryCount = 0
+				rt.NextRetry = time.Time{}
+				rt.RetryIn = 0
+			}
+
+			out := a.publicDestination(*d)
+			a.mu.Unlock()
+
+			if !enabled {
+				_ = a.stopDestination(id, false)
+			} else if autoStart {
+				a.ensureAutoStarts()
+			}
+
+			writeJSON(w, http.StatusOK, out)
+			return
+
+		case "toggle-auto-start":
+			if r.Method != http.MethodPost {
+				methodNotAllowed(w)
+				return
+			}
+
+			a.mu.Lock()
+			_, d := a.findDestLocked(id)
+			if d == nil {
+				a.mu.Unlock()
+				http.NotFound(w, r)
+				return
+			}
+
+			oldAutoStart := d.AutoStart
+			d.AutoStart = !d.AutoStart
+
+			if err := a.saveConfigLocked(); err != nil {
+				d.AutoStart = oldAutoStart
+				a.mu.Unlock()
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+
+			autoStart := d.AutoStart
+			enabled := d.Enabled
+
+			if autoStart {
+				rt := a.getRuntimeLocked(id)
+				rt.ManualStopped = false
+				rt.RetryCount = 0
+				rt.NextRetry = time.Time{}
+				rt.RetryIn = 0
+			}
+
+			out := a.publicDestination(*d)
+			a.mu.Unlock()
+
+			// Passer en MANUEL ne coupe pas un live deja en cours.
+			// Passer en AUTO autorise un demarrage immediat si la destination est activee.
+			if autoStart && enabled {
+				a.ensureAutoStarts()
+			}
+
+			writeJSON(w, http.StatusOK, out)
+			return
+
 		case "logs":
 			if r.Method != http.MethodGet {
 				methodNotAllowed(w)

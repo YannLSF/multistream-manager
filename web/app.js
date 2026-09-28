@@ -4,13 +4,17 @@ let logEntries = [];
 let logFilter = 'all';
 let previewCtx = null;
 let previewHls = null;
+const destinationFlagBusy = new Set();
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 
 async function api(url, options={}) {
   const res = await fetch(url, {headers:{'Content-Type':'application/json',...(options.headers||{})}, cache:'no-store', ...options});
-  if(res.status===401){ location.replace('/login'); throw new Error('Authentification requise'); }
+  if(res.status===401){
+    location.replace('/login?next='+encodeURIComponent(location.pathname+location.search));
+    throw new Error('Authentification requise');
+  }
   const data = await res.json().catch(()=>({}));
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
@@ -32,17 +36,63 @@ function fmtUptime(iso){
   return `${Math.floor(m/60)}h ${m%60}m`;
 }
 
-function videoTracks(){ return (state?.tracks||[]).filter(t=>t.codec_type==='video'); }
-function audioTracks(){ return (state?.tracks||[]).filter(t=>t.codec_type==='audio'); }
-function getTrack(kind, order){
-  const arr=kind==='video'?videoTracks():audioTracks();
+function sourceById(id='primary'){
+  const sid=id||'primary';
+
+  const found=(state?.sources||[]).find(x=>x.id===sid);
+  if(found) return found;
+
+  if(sid==='primary'){
+    return {
+      id:'primary',
+      label:'Twitch / Enhanced RTMP',
+      primary:true,
+      state:state?.source||{},
+      tracks:state?.tracks||[]
+    };
+  }
+
+  return null;
+}
+
+function sourceLabel(id='primary'){
+  return sourceById(id)?.label || id || 'primary';
+}
+
+function sourceOnline(id='primary'){
+  return sourceById(id)?.state?.online===true;
+}
+
+function sourceTracks(id='primary'){
+  return sourceById(id)?.tracks||[];
+}
+
+function videoTracks(sourceID='primary'){
+  return sourceTracks(sourceID).filter(t=>t.codec_type==='video');
+}
+
+function audioTracks(sourceID='primary'){
+  return sourceTracks(sourceID).filter(t=>t.codec_type==='audio');
+}
+
+function getTrack(kind,order,sourceID='primary'){
+  const arr=kind==='video'?videoTracks(sourceID):audioTracks(sourceID);
   const key=kind==='video'?'video_order':'audio_order';
-  return arr.find(t => Number(t[key])===Number(order));
+  return arr.find(t=>Number(t[key])===Number(order));
 }
-function fallbackTrack(kind, order){
-  return {name:`${kind==='video'?'Vidéo':'Audio'} #${Number(order)+1}`,details:'Piste non détectée actuellement',label:`${kind==='video'?'Vidéo':'Audio'} #${Number(order)+1}`};
+
+function fallbackTrack(kind,order){
+  return {
+    name:`${kind==='video'?'Vidéo':'Audio'} #${Number(order)+1}`,
+    details:'Piste non détectée actuellement',
+    label:`${kind==='video'?'Vidéo':'Audio'} #${Number(order)+1}`
+  };
 }
-function trackInfo(kind, order){ return getTrack(kind,order) || fallbackTrack(kind,order); }
+
+function trackInfo(kind,order,sourceID='primary'){
+  return getTrack(kind,order,sourceID)||fallbackTrack(kind,order);
+}
+
 function presetById(id){ return (state?.presets||[]).find(p=>p.id===id) || (state?.presets||[]).find(p=>p.id==='custom') || {id:'custom',name:'RTMP / RTMPS personnalisé',constraints:{}}; }
 
 function trackTile(t){
@@ -52,9 +102,9 @@ function trackTile(t){
   </div>`;
 }
 
-function choiceHTML(kind, order){
-  const t=trackInfo(kind,order);
-  return `<div class="choice"><strong>${esc(t.name)}</strong><span>${esc(t.details || '')}</span></div>`;
+function choiceHTML(kind,order,sourceID='primary'){
+  const t=trackInfo(kind,order,sourceID);
+  return `<div class="choice"><strong>${esc(t.name)}</strong><span>${esc(t.details||'')}</span></div>`;
 }
 
 function statusBadge(r){
@@ -92,6 +142,35 @@ function audioPlanHTML(c){
   return `<div class="audio-plan unsupported"><span>▲ Adaptation requise</span><strong>${esc(p.label||'Non automatisable')}</strong></div>`;
 }
 
+function secondarySourceHTML(src){
+  const online=src.state?.online===true;
+  const tracks=src.tracks||[];
+  const stateInfo=src.state||{};
+
+  return `<div class="secondary-source">
+    <div class="source-head secondary-source-head">
+      <div>
+        <div class="source-title secondary-source-title">
+          <span class="dot ${online?'on':'off'}"></span>
+          <span>${esc(src.label||src.id)}</span>
+        </div>
+        <div class="secondary-source-id">${esc(src.id)}</div>
+      </div>
+      <div class="source-stats">
+        <div><strong>${stateInfo.video_count||0}</strong><span>vidéos</span></div>
+        <div><strong>${stateInfo.audio_count||0}</strong><span>audio</span></div>
+        <div><strong>${stateInfo.track_count||tracks.length||0}</strong><span>pistes</span></div>
+      </div>
+    </div>
+    ${stateInfo.probe_error?`<div class="error secondary-source-error">${esc(stateInfo.probe_error)}</div>`:''}
+    <div class="tracks ${tracks.length?'':'empty'}">${
+      tracks.length
+        ? tracks.map(trackTile).join('')
+        : 'Aucune piste détectée actuellement.'
+    }</div>
+  </div>`;
+}
+
 function render(){
   if(!state) return;
   const s=state.source;
@@ -126,6 +205,20 @@ function render(){
     tr.innerHTML=state.tracks.map(trackTile).join('');
   }
 
+  const secondarySources=(state.sources||[]).filter(src=>!src.primary);
+  const secondaryCard=$('#secondarySourcesCard');
+  const secondaryBox=$('#secondarySources');
+
+  if(secondaryCard && secondaryBox){
+    if(secondarySources.length){
+      secondaryBox.innerHTML=secondarySources.map(secondarySourceHTML).join('');
+      secondaryCard.classList.remove('hidden');
+    }else{
+      secondaryBox.innerHTML='';
+      secondaryCard.classList.add('hidden');
+    }
+  }
+
   const box=$('#destinations');
   if(!state.destinations?.length){
     box.innerHTML=`<div class="dest"><div class="dest-title">Aucune destination</div><p class="muted">Ajoute un preset ou un endpoint RTMP/RTMPS personnalisé.</p></div>`;
@@ -135,7 +228,9 @@ function render(){
   box.innerHTML=state.destinations.map(x=>{
     const d=x.config,r=x.runtime,c=x.compatibility||{}, logs=x.logs||{};
     const preset=presetById(d.provider);
-    const canStart=s.online && d.enabled;
+    const sourceID=d.source_id||'primary';
+    const srcOnline=sourceOnline(sourceID);
+    const canStart=srcOnline && d.enabled;
     const retry=(r.retry_in_seconds>0 && d.enabled && d.auto_start)
       ? `<div class="retry-note">Nouvelle tentative automatique dans ${r.retry_in_seconds}s${r.retry_count>1?` · tentative ${r.retry_count}`:''}</div>`:'';
     const logBadge=(logs.warnings||logs.errors||logs.fatals)
@@ -144,15 +239,26 @@ function render(){
       <div class="dest-head">
         <div>
           <div class="dest-title">${esc(d.name)}</div>
-          <div class="provider">${esc(preset.name)} · ${d.enabled?'activé':'désactivé'} · ${d.auto_start?'auto':'manuel'}</div>
+          <div class="provider">${esc(preset.name)} · ${esc(sourceLabel(sourceID))}</div>
+          <div class="dest-flags">
+            <button type="button"
+              class="dest-flag ${d.enabled?'is-enabled':'is-disabled'}"
+              title="${d.enabled?'Désactiver cette destination':'Activer cette destination'}"
+              onclick="toggleDestinationEnabled('${esc(d.id)}')">${d.enabled?'ACTIVÉ':'DÉSACTIVÉ'}</button>
+            <button type="button"
+              class="dest-flag ${d.auto_start?'is-auto':'is-manual'}"
+              title="${d.auto_start?'Passer en démarrage manuel':'Activer le démarrage automatique'}"
+              onclick="toggleDestinationAutoStart('${esc(d.id)}')">${d.auto_start?'AUTO':'MANUEL'}</button>
+          </div>
         </div>
         ${statusBadge(r)}
       </div>
       <div class="compat-row">${compatBadge(c)}</div>
       ${compatIssuesHTML(c)}
       <div class="dest-meta">
-        <div class="meta"><label>Vidéo</label>${choiceHTML('video',d.video_track)}</div>
-        <div class="meta"><label>Audio</label>${choiceHTML('audio',d.audio_track)}${audioPlanHTML(c)}</div>
+        <div class="meta"><label>Source</label><span>${esc(sourceLabel(sourceID))}${srcOnline?'':' · hors ligne'}</span></div>
+        <div class="meta"><label>Vidéo</label>${choiceHTML('video',d.video_track,sourceID)}</div>
+        <div class="meta"><label>Audio</label>${choiceHTML('audio',d.audio_track,sourceID)}${audioPlanHTML(c)}</div>
         <div class="meta"><label>Clé</label><span>${d.key_configured?'Configurée':'Manquante'}</span></div>
         <div class="meta"><label>Durée</label><span>${r.running?fmtUptime(r.started_at):'—'}</span></div>
         <div class="meta"><label>CPU / RAM</label><span>${r.running?`${fmtCPU(x.resources?.cpu_percent)} · ${fmtBytes(x.resources?.rss_bytes)}`:'—'}</span></div>
@@ -160,7 +266,7 @@ function render(){
       ${r.last_error?`<div class="error"><strong>FFmpeg :</strong> ${esc(r.last_error)}</div>`:''}
       ${retry}
       <div class="actions">
-        <button class="small preview-btn" ${!s.online?'disabled':''} onclick="openPreview('${esc(d.id)}')">Aperçu${x.preview?.running?' ●':''}</button>
+        <button class="small preview-btn" ${!srcOnline?'disabled':''} onclick="openPreview('${esc(d.id)}')">Aperçu${x.preview?.running?' ●':''}</button>
         ${r.running
           ? `<button class="small danger" onclick="stopDest('${esc(d.id)}')">Arrêter</button>`
           : `<button class="small success" ${!canStart?'disabled':''} onclick="startDest('${esc(d.id)}')">Démarrer</button>`}
@@ -183,6 +289,33 @@ async function refresh(){
 }
 async function startDest(id){ try{ await api(`/api/destinations/${id}/start`,{method:'POST'}); setTimeout(refresh,250); }catch(e){ alert(e.message); } }
 async function stopDest(id){ try{ await api(`/api/destinations/${id}/stop`,{method:'POST'}); setTimeout(refresh,350); }catch(e){ alert(e.message); } }
+async function toggleDestinationFlag(id, action){
+  const busyKey=`${id}:${action}`;
+  if(destinationFlagBusy.has(busyKey))return;
+
+  destinationFlagBusy.add(busyKey);
+
+  try{
+    await api(
+      `/api/destinations/${encodeURIComponent(id)}/${action}`,
+      {method:'POST'}
+    );
+    await refresh();
+  }catch(e){
+    alert(e.message);
+  }finally{
+    destinationFlagBusy.delete(busyKey);
+  }
+}
+
+async function toggleDestinationEnabled(id){
+  return toggleDestinationFlag(id,'toggle-enabled');
+}
+
+async function toggleDestinationAutoStart(id){
+  return toggleDestinationFlag(id,'toggle-auto-start');
+}
+
 async function deleteDest(id){
   const name=state?.destinations?.find(x=>x.config.id===id)?.config?.name||id;
   if(!confirm(`Supprimer ${name} ?`))return;
@@ -223,12 +356,50 @@ function populatePresetSelect(selected='kick'){
   select.dataset.previous=select.value;
 }
 
-function populateTrackSelects(videoOrder=0,audioOrder=0){
-  const v=videoTracks(),a=audioTracks();
-  const vf=v.length?v:[{video_order:Number(videoOrder),label:`Vidéo #${Number(videoOrder)+1} — source hors ligne`}];
-  const af=a.length?a:[{audio_order:Number(audioOrder),label:`Audio #${Number(audioOrder)+1} — source hors ligne`}];
-  $('#videoTrack').innerHTML=vf.map(t=>`<option value="${t.video_order}" ${Number(t.video_order)===Number(videoOrder)?'selected':''}>${esc(t.label)}</option>`).join('');
-  $('#audioTrack').innerHTML=af.map(t=>`<option value="${t.audio_order}" ${Number(t.audio_order)===Number(audioOrder)?'selected':''}>${esc(t.label)}</option>`).join('');
+function populateSourceSelect(selected='primary'){
+  const select=$('#sourceId');
+  if(!select)return;
+
+  const sources=state?.sources||[];
+
+  select.innerHTML=sources.map(src=>
+    `<option value="${esc(src.id)}" ${src.id===selected?'selected':''}>${esc(src.label||src.id)}${src.state?.online===true?'':' — hors ligne'}</option>`
+  ).join('');
+
+  if(!select.value && select.options.length){
+    select.value=select.options[0].value;
+  }
+}
+
+function populateTrackSelects(videoOrder=0,audioOrder=0,sourceID=$('#sourceId')?.value||'primary'){
+  const v=videoTracks(sourceID);
+  const a=audioTracks(sourceID);
+
+  const vf=v.length?v:[{
+    video_order:Number(videoOrder),
+    label:`Vidéo #${Number(videoOrder)+1} — source hors ligne`
+  }];
+
+  const af=a.length?a:[{
+    audio_order:Number(audioOrder),
+    label:`Audio #${Number(audioOrder)+1} — source hors ligne`
+  }];
+
+  $('#videoTrack').innerHTML=vf.map(t=>
+    `<option value="${t.video_order}" ${Number(t.video_order)===Number(videoOrder)?'selected':''}>${esc(t.label)}</option>`
+  ).join('');
+
+  $('#audioTrack').innerHTML=af.map(t=>
+    `<option value="${t.audio_order}" ${Number(t.audio_order)===Number(audioOrder)?'selected':''}>${esc(t.label)}</option>`
+  ).join('');
+
+  if(v.length && !getTrack('video',$('#videoTrack').value,sourceID)){
+    $('#videoTrack').value=String(v[0].video_order);
+  }
+
+  if(a.length && !getTrack('audio',$('#audioTrack').value,sourceID)){
+    $('#audioTrack').value=String(a[0].audio_order);
+  }
 }
 
 function updateProviderHints(fillDefault=false){
@@ -255,22 +426,36 @@ function onProviderChange(){
 }
 
 async function updateFormCompatibility(){
-  if(!state?.tracks?.length){
+  const sourceID=$('#sourceId')?.value||'primary';
+
+  if(!sourceTracks(sourceID).length){
     $('#compatPreview').innerHTML='<span class="compat unknown">? Source hors ligne : compatibilité non vérifiable</span>';
     return;
   }
+
   const seq=++compatRequestSeq;
+
   try{
-    const c=await api('/api/compatibility',{method:'POST',body:JSON.stringify({
-      provider:$('#provider').value,
-      video_track:Number($('#videoTrack').value||0),
-      audio_track:Number($('#audioTrack').value||0),
-      auto_adapt_audio:$('#autoAdaptAudio').checked
-    })});
+    const c=await api('/api/compatibility',{
+      method:'POST',
+      body:JSON.stringify({
+        source_id:sourceID,
+        provider:$('#provider').value,
+        video_track:Number($('#videoTrack').value||0),
+        audio_track:Number($('#audioTrack').value||0),
+        auto_adapt_audio:$('#autoAdaptAudio').checked
+      })
+    });
+
     if(seq!==compatRequestSeq)return;
-    $('#compatPreview').innerHTML=`${compatBadge(c)}${compatIssuesHTML(c,5)}${audioPlanHTML(c)}`;
+
+    $('#compatPreview').innerHTML=
+      `${compatBadge(c)}${compatIssuesHTML(c,5)}${audioPlanHTML(c)}`;
   }catch(e){
-    if(seq===compatRequestSeq) $('#compatPreview').innerHTML=`<span class="compat unknown">? ${esc(e.message)}</span>`;
+    if(seq===compatRequestSeq){
+      $('#compatPreview').innerHTML=
+        `<span class="compat unknown">? ${esc(e.message)}</span>`;
+    }
   }
 }
 
@@ -278,15 +463,21 @@ function openNew(){
   $('#dialogTitle').textContent='Ajouter une destination';
   $('#destId').value='';
   $('#name').value='Kick';
+
   populatePresetSelect('kick');
+  populateSourceSelect('primary');
+
   const p=presetById('kick');
+
   $('#server').value=p.default_server||'';
   $('#streamKey').value='';
   $('#enabled').checked=true;
   $('#autoStart').checked=true;
   $('#autoAdaptAudio').checked=false;
-  populateTrackSelects();
+
+  populateTrackSelects(0,0,'primary');
   updateProviderHints(false);
+
   $('#formError').classList.add('hidden');
   $('#editDialog').showModal();
 }
@@ -294,17 +485,25 @@ function openNew(){
 function editDest(id){
   const d=state.destinations.find(x=>x.config.id===id)?.config;
   if(!d)return;
+
+  const sourceID=d.source_id||'primary';
+
   $('#dialogTitle').textContent=`Modifier ${d.name}`;
   $('#destId').value=d.id;
   $('#name').value=d.name;
+
   populatePresetSelect(d.provider||'custom');
+  populateSourceSelect(sourceID);
+
   $('#server').value=d.server;
   $('#streamKey').value='';
   $('#enabled').checked=d.enabled;
   $('#autoStart').checked=d.auto_start;
   $('#autoAdaptAudio').checked=d.auto_adapt_audio===true;
-  populateTrackSelects(d.video_track,d.audio_track);
+
+  populateTrackSelects(d.video_track,d.audio_track,sourceID);
   updateProviderHints(false);
+
   $('#formError').classList.add('hidden');
   $('#editDialog').showModal();
 }
@@ -316,6 +515,7 @@ $('#editForm').addEventListener('submit',async e=>{
     id,
     name:$('#name').value.trim(),
     provider:$('#provider').value,
+    source_id:$('#sourceId').value||'primary',
     enabled:$('#enabled').checked,
     auto_start:$('#autoStart').checked,
     auto_adapt_audio:$('#autoAdaptAudio').checked,
@@ -325,8 +525,34 @@ $('#editForm').addEventListener('submit',async e=>{
     audio_track:Number($('#audioTrack').value||0)
   };
   try{
-    if(id) await api(`/api/destinations/${id}`,{method:'PUT',body:JSON.stringify(payload)});
-    else await api('/api/destinations',{method:'POST',body:JSON.stringify(payload)});
+    if(id){
+      const previous=state?.destinations?.find(x=>x.config.id===id);
+
+      await api(`/api/destinations/${id}`,{
+        method:'PUT',
+        body:JSON.stringify(payload)
+      });
+
+      const selectionChanged=
+        previous &&
+        (
+          (previous.config.source_id||'primary')!==payload.source_id ||
+          Number(previous.config.video_track)!==payload.video_track ||
+          Number(previous.config.audio_track)!==payload.audio_track
+        );
+
+      if(selectionChanged && previous?.preview?.running){
+        await api(`/api/destinations/${id}/preview`,{
+          method:'DELETE'
+        }).catch(()=>{});
+      }
+    }else{
+      await api('/api/destinations',{
+        method:'POST',
+        body:JSON.stringify(payload)
+      });
+    }
+
     $('#editDialog').close();
     await refresh();
   } catch(err){
@@ -336,33 +562,110 @@ $('#editForm').addEventListener('submit',async e=>{
   }
 });
 
-function pickPreviewVideo(preferred){
-  const selected=getTrack('video',preferred);
-  if(selected?.codec_name?.toLowerCase()==='h264') return Number(preferred);
-  const sameOrientation=selected ? videoTracks().find(t=>t.codec_name?.toLowerCase()==='h264' && ((t.width>=t.height)===(selected.width>=selected.height))) : null;
-  const fallback=sameOrientation||videoTracks().find(t=>t.codec_name?.toLowerCase()==='h264')||selected||videoTracks()[0];
-  return Number(fallback?.video_order ?? preferred ?? 0);
-}
-function pickPreviewAudio(preferred){
-  const selected=getTrack('audio',preferred);
-  if(selected?.codec_name?.toLowerCase()==='aac') return Number(preferred);
-  const fallback=audioTracks().find(t=>t.codec_name?.toLowerCase()==='aac')||selected||audioTracks()[0];
-  return Number(fallback?.audio_order ?? preferred ?? 0);
+$('#sourceId').addEventListener('change',()=>{
+  const sourceID=$('#sourceId').value||'primary';
+  populateTrackSelects(0,0,sourceID);
+  updateFormCompatibility();
+});
+
+function previewSourceID(){
+  if(!previewCtx)return 'primary';
+
+  const x=state?.destinations?.find(x=>x.config.id===previewCtx.id);
+  return x?.config?.source_id||previewCtx.source_id||'primary';
 }
 
-function populatePreviewSelects(videoOrder,audioOrder){
-  $('#previewVideoTrack').innerHTML=videoTracks().map(t=>`<option value="${t.video_order}" ${Number(t.video_order)===Number(videoOrder)?'selected':''}>${esc(t.label)}</option>`).join('');
-  $('#previewAudioTrack').innerHTML=audioTracks().map(t=>`<option value="${t.audio_order}" ${Number(t.audio_order)===Number(audioOrder)?'selected':''}>${esc(t.label)}</option>`).join('');
+function pickPreviewVideo(preferred,sourceID=previewSourceID()){
+  const selected=getTrack('video',preferred,sourceID);
+
+  if(selected?.codec_name?.toLowerCase()==='h264'){
+    return Number(preferred);
+  }
+
+  const list=videoTracks(sourceID);
+
+  const sameOrientation=selected
+    ? list.find(t=>
+        t.codec_name?.toLowerCase()==='h264' &&
+        ((t.width>=t.height)===(selected.width>=selected.height))
+      )
+    : null;
+
+  const fallback=
+    sameOrientation ||
+    list.find(t=>t.codec_name?.toLowerCase()==='h264') ||
+    selected ||
+    list[0];
+
+  return Number(fallback?.video_order??preferred??0);
+}
+
+function pickPreviewAudio(preferred,sourceID=previewSourceID()){
+  const selected=getTrack('audio',preferred,sourceID);
+
+  if(selected?.codec_name?.toLowerCase()==='aac'){
+    return Number(preferred);
+  }
+
+  const list=audioTracks(sourceID);
+
+  const fallback=
+    list.find(t=>t.codec_name?.toLowerCase()==='aac') ||
+    selected ||
+    list[0];
+
+  return Number(fallback?.audio_order??preferred??0);
+}
+
+function populatePreviewSelects(videoOrder,audioOrder,sourceID=previewSourceID()){
+  $('#previewVideoTrack').innerHTML=videoTracks(sourceID).map(t=>
+    `<option value="${t.video_order}" ${Number(t.video_order)===Number(videoOrder)?'selected':''}>${esc(t.label)}</option>`
+  ).join('');
+
+  $('#previewAudioTrack').innerHTML=audioTracks(sourceID).map(t=>
+    `<option value="${t.audio_order}" ${Number(t.audio_order)===Number(audioOrder)?'selected':''}>${esc(t.label)}</option>`
+  ).join('');
+
   updatePreviewWarning();
 }
+
 function updatePreviewWarning(){
-  const v=getTrack('video',Number($('#previewVideoTrack').value||0));
-  const a=getTrack('audio',Number($('#previewAudioTrack').value||0));
+  const sourceID=previewSourceID();
+
+  const v=getTrack(
+    'video',
+    Number($('#previewVideoTrack').value||0),
+    sourceID
+  );
+
+  const a=getTrack(
+    'audio',
+    Number($('#previewAudioTrack').value||0),
+    sourceID
+  );
+
   const notes=[];
-  if(v && v.codec_name?.toLowerCase()!=='h264') notes.push(`${v.name} utilise ${v.codec_name?.toUpperCase()} : la lecture dépend du navigateur/OS. Une rendition H.264 est préférable.`);
-  if(a && a.codec_name?.toLowerCase()!=='aac') notes.push(`${a.name} utilise ${a.codec_name?.toUpperCase()} : l’aperçu HLS en copie directe requiert actuellement AAC.`);
+
+  if(v && v.codec_name?.toLowerCase()!=='h264'){
+    notes.push(
+      `${v.name} utilise ${v.codec_name?.toUpperCase()} : la lecture dépend du navigateur/OS. Une rendition H.264 est préférable.`
+    );
+  }
+
+  if(a && a.codec_name?.toLowerCase()!=='aac'){
+    notes.push(
+      `${a.name} utilise ${a.codec_name?.toUpperCase()} : l’aperçu HLS en copie directe requiert actuellement AAC.`
+    );
+  }
+
   const el=$('#previewWarning');
-  if(notes.length){el.textContent=notes.join(' ');el.classList.remove('hidden');}else el.classList.add('hidden');
+
+  if(notes.length){
+    el.textContent=notes.join(' ');
+    el.classList.remove('hidden');
+  }else{
+    el.classList.add('hidden');
+  }
 }
 
 function destroyPreviewPlayer(){
@@ -453,18 +756,44 @@ function syncPreviewDialog(){
 async function openPreview(id){
   const x=state.destinations.find(x=>x.config.id===id);
   if(!x)return;
-  previewCtx={id,name:x.config.name};
-  $('#previewName').textContent=x.config.name;
+
+  const sourceID=x.config.source_id||'primary';
+
+  previewCtx={
+    id,
+    name:x.config.name,
+    source_id:sourceID
+  };
+
+  $('#previewName').textContent=
+    `${x.config.name} · ${sourceLabel(sourceID)}`;
+
   setPreviewError(x.preview?.last_error||'');
+
   const running=x.preview?.running;
   const ready=running && x.preview?.ready;
-  const videoOrder=running?x.preview.video_track:pickPreviewVideo(x.config.video_track);
-  const audioOrder=running?x.preview.audio_track:pickPreviewAudio(x.config.audio_track);
-  populatePreviewSelects(videoOrder,audioOrder);
-  $('#previewState').textContent=ready?'● APERÇU ACTIF':(running?'DÉMARRAGE DE L’APERÇU…':'APERÇU ARRÊTÉ');
+
+  const videoOrder=running
+    ? x.preview.video_track
+    : pickPreviewVideo(x.config.video_track,sourceID);
+
+  const audioOrder=running
+    ? x.preview.audio_track
+    : pickPreviewAudio(x.config.audio_track,sourceID);
+
+  populatePreviewSelects(videoOrder,audioOrder,sourceID);
+
+  $('#previewState').textContent=
+    ready
+      ? '● APERÇU ACTIF'
+      : (running?'DÉMARRAGE DE L’APERÇU…':'APERÇU ARRÊTÉ');
+
   $('#previewState').classList.toggle('active',!!ready);
   $('#previewDialog').showModal();
-  if(ready && x.preview.playlist) attachPreviewPlayer(x.preview.playlist);
+
+  if(ready && x.preview.playlist){
+    attachPreviewPlayer(x.preview.playlist);
+  }
 }
 
 async function startPreview(){

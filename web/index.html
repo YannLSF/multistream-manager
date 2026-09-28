@@ -24,7 +24,7 @@
     <section id="sourceCard" class="panel source-card">
       <div class="source-head">
         <div>
-          <div class="eyebrow">SOURCE OBS / MEDIAMTX</div>
+          <div class="eyebrow">SOURCE OBS TWITCH / MEDIAMTX</div>
           <div class="source-title"><span id="sourceDot" class="dot off"></span><span id="sourceText">Hors ligne</span></div>
         </div>
         <div class="source-stats">
@@ -35,6 +35,11 @@
       </div>
       <div id="probeError" class="error hidden"></div>
       <div id="tracks" class="tracks empty">Aucune piste détectée.</div>
+    </section>
+
+    <section id="secondarySourcesCard" class="panel source-card secondary-sources-card hidden">
+      <div class="eyebrow">SOURCES OBS SECONDAIRES / MEDIAMTX</div>
+      <div id="secondarySources" class="secondary-sources"></div>
     </section>
 
     <section class="panel resource-card">
@@ -80,6 +85,10 @@
         </label>
         <label>Preset
           <select id="provider"></select>
+        </label>
+        <label>Source
+          <select id="sourceId"></select>
+          <small class="field-hint">Flux MediaMTX utilisé par cette destination.</small>
         </label>
         <label class="wide">Serveur RTMP / RTMPS
           <input id="server" required placeholder="rtmps://.../app">

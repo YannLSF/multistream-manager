@@ -343,19 +343,8 @@ func (a *App) syncSourceCatalog(paths []string, apiErr error, now time.Time) sou
 }
 
 func (a *App) publicSourcesLocked() []SourceStatus {
-	if len(a.sources) == 0 {
-		return []SourceStatus{
-			{
-				ID:      primarySourceID,
-				Label:   "Twitch / Enhanced RTMP",
-				Primary: true,
-				State:   a.source,
-				Tracks:  append([]Track(nil), a.tracks...),
-			},
-		}
-	}
-
-	out := make([]SourceStatus, 0, len(a.sources))
+	out := make([]SourceStatus, 0, len(a.sources)+len(a.config.Destinations))
+	seen := make(map[string]bool)
 
 	for _, src := range a.sources {
 		out = append(out, SourceStatus{
@@ -365,6 +354,41 @@ func (a *App) publicSourcesLocked() []SourceStatus {
 			State:   src.State,
 			Tracks:  append([]Track(nil), src.Tracks...),
 		})
+		seen[src.ID] = true
+	}
+
+	if !seen[primarySourceID] {
+		out = append(out, SourceStatus{
+			ID:      primarySourceID,
+			Label:   "Twitch / Enhanced RTMP",
+			Primary: true,
+			State:   a.source,
+			Tracks:  append([]Track(nil), a.tracks...),
+		})
+		seen[primarySourceID] = true
+	}
+
+	// Une source référencée par une destination doit rester visible
+	// même si elle est hors ligne au démarrage du Manager.
+	for _, d := range a.config.Destinations {
+		id := normalizedSourceID(d.SourceID)
+		if seen[id] {
+			continue
+		}
+
+		label := id
+		if strings.HasPrefix(id, a.settings.MTXSourcesPrefix) {
+			label = additionalSourceLabel(id, a.settings.MTXSourcesPrefix)
+		}
+
+		out = append(out, SourceStatus{
+			ID:      id,
+			Label:   label,
+			Primary: id == primarySourceID,
+			State:   SourceState{Online: false},
+			Tracks:  []Track{},
+		})
+		seen[id] = true
 	}
 
 	sort.Slice(out, func(i, j int) bool {

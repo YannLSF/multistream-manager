@@ -24,6 +24,11 @@ func compatibilityFor(p Preset, video, audio *Track) CompatibilityResult {
 }
 
 func compatibilityForSetting(p Preset, video, audio *Track, autoAdaptAudio bool) CompatibilityResult {
+	// v0.4.3 YouTube codecs.
+	// Garde aussi la correction pour un /data/presets.json créé en v0.4.2.
+	if p.ID == "youtube" {
+		p.Constraints.VideoCodecs = []string{"h264", "hevc", "av1"}
+	}
 	audioPlan := audioPlanForSetting(p, audio, autoAdaptAudio)
 	if p.ID == "custom" {
 		return CompatibilityResult{Status: "unknown", Label: "Compatibilité non contrainte", AudioPlan: audioPlan}
