@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	appVersion     = "0.4.3"
+	appVersion     = "0.5.0"
 	enhancedCodecs = "ac-3,av01,avc1,ec-3,fLaC,hvc1,.mp3,mp4a,Opus,vp09"
 )
 
