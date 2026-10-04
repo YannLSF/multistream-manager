@@ -297,7 +297,7 @@ func (a *App) stopPreview(id string) error {
 	if ps == nil || ps.cmd == nil || ps.cmd.Process == nil {
 		return nil
 	}
-	if err := ps.cmd.Process.Signal(os.Interrupt); err != nil {
+	if err := stopProcess(ps.cmd.Process); err != nil {
 		_ = ps.cmd.Process.Kill()
 		return err
 	}
