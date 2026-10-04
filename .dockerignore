@@ -1,4 +1,10 @@
 .git
+/bin
+/data
+/dist
+/logs
+
 *.zip
 *.tar.gz
-data
+*.sha256
+*.log
