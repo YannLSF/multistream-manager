@@ -287,6 +287,10 @@ func main() {
 		return
 	}
 	settings := loadSettings()
+	if err := prepareRuntimeDataDir(settings); err != nil {
+		log.Fatalf("cannot prepare data directory: %v", err)
+	}
+	logRuntimeDiagnostics(settings)
 	if err := os.MkdirAll(settings.DataDir, 0o700); err != nil {
 		log.Fatalf("cannot create data directory: %v", err)
 	}
@@ -393,6 +397,7 @@ func main() {
 }
 
 func loadSettings() Settings {
+	layout := detectRuntimeLayout()
 	poll := 2 * time.Second
 	if s := os.Getenv("POLL_SECONDS"); s != "" {
 		if f, err := strconv.ParseFloat(s, 64); err == nil && f >= 0.5 {
@@ -405,14 +410,14 @@ func loadSettings() Settings {
 	}
 	return Settings{
 		Bind:              envDefault("BIND", ":8090"),
-		DataDir:           envDefault("DATA_DIR", "/data"),
+		DataDir:           envDefault("DATA_DIR", layout.DataDir),
 		MTXAPI:            strings.TrimRight(envDefault("MTX_API", "http://127.0.0.1:9999"), "/"),
 		MTXRTMPBase:       strings.TrimRight(envDefault("MTX_RTMP_BASE", "rtmp://127.0.0.1:1938"), "/"),
 		MTXPathPrefix:     envDefault("MTX_PATH_PREFIX", "app/"),
 		MTXSourcesPrefix:  envDefault("MTX_SOURCES_PREFIX", "sources/"),
 		PollInterval:      poll,
-		FFmpegBin:         envDefault("FFMPEG_BIN", "ffmpeg"),
-		FFprobeBin:        envDefault("FFPROBE_BIN", "ffprobe"),
+		FFmpegBin:         envDefault("FFMPEG_BIN", layout.FFmpegBin),
+		FFprobeBin:        envDefault("FFPROBE_BIN", layout.FFprobeBin),
 		LogRingLines:      envInt("LOG_RING_LINES", 500),
 		LogMaxBytes:       int64(envInt("LOG_MAX_BYTES", 2*1024*1024)),
 		LogBackups:        envInt("LOG_BACKUPS", 3),

@@ -18,3 +18,7 @@ error-history.json
 *.log
 *.zip
 *.sha256
+
+# Runtime portable local
+/bin/
+/dist/
