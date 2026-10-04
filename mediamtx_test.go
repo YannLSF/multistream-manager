@@ -31,6 +31,10 @@ func TestMediaMTXGeneratedConfig(t *testing.T) {
 		"srt: false",
 		"moq: false",
 		"paths:",
+		`"~^app/(.+)$":`,
+		"forward:",
+		`rtmps://ingest.global-contribute.live-video.net/app#$G1?$MTX_QUERY`,
+		`"~^sources/(.+)$": {}`,
 		"  all_others:",
 	}
 
@@ -40,8 +44,43 @@ func TestMediaMTXGeneratedConfig(t *testing.T) {
 		}
 	}
 
-	if strings.Contains(config, "forward:") {
-		t.Fatalf("portable MediaMTX configuration must not contain forwarding:\n%s", config)
+	appPos := strings.Index(
+		config,
+		`"~^app/(.+)$":`,
+	)
+	sourcesPos := strings.Index(
+		config,
+		`"~^sources/(.+)$": {}`,
+	)
+	fallbackPos := strings.Index(
+		config,
+		"  all_others:",
+	)
+
+	if appPos < 0 ||
+		sourcesPos < 0 ||
+		fallbackPos < 0 ||
+		!(appPos < sourcesPos && sourcesPos < fallbackPos) {
+		t.Fatalf(
+			"unexpected MediaMTX path order:\n%s",
+			config,
+		)
+	}
+
+	appBlock := config[appPos:sourcesPos]
+	if !strings.Contains(appBlock, "forward:") {
+		t.Fatalf(
+			"primary app path must forward to Twitch:\n%s",
+			config,
+		)
+	}
+
+	sourcesBlock := config[sourcesPos:fallbackPos]
+	if strings.Contains(sourcesBlock, "forward:") {
+		t.Fatalf(
+			"additional sources must not be forwarded:\n%s",
+			config,
+		)
 	}
 }
 

@@ -713,7 +713,7 @@ func (a *App) sourceURL(path string) string { return a.settings.MTXRTMPBase + "/
 func (a *App) probeTracks(path string) ([]Track, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, a.settings.FFprobeBin,
+	cmd := newChildCommandContext(ctx, a.settings.FFprobeBin,
 		"-v", "error",
 		"-rtmp_enhanced_codecs", enhancedCodecs,
 		"-show_entries", "stream=index,codec_type,codec_name,profile,level,has_b_frames,width,height,r_frame_rate,bit_rate,sample_rate,channels",
@@ -1016,7 +1016,7 @@ func (a *App) startDestination(id string, manual bool) error {
 		return err
 	}
 
-	cmd := exec.Command(a.settings.FFmpegBin, args...)
+	cmd := newChildCommand(a.settings.FFmpegBin, args...)
 
 	lines := a.settings.LogRingLines
 	if lines <= 0 {

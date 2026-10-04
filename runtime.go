@@ -4,7 +4,6 @@ import (
 	"context"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -189,7 +188,7 @@ func binaryVersion(binary string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, binary, args...)
+	cmd := newChildCommandContext(ctx, binary, args...)
 	out, err := cmd.Output()
 
 	if ctx.Err() != nil {

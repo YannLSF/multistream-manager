@@ -127,7 +127,7 @@ func (s *MediaMTXSupervisor) Start(ctx context.Context) error {
 		return err
 	}
 
-	cmd := exec.Command(s.binary, s.config)
+	cmd := newChildCommand(s.binary, s.config)
 	cmd.Env = mediaMTXChildEnvironment(os.Environ())
 
 	closeOutput, err := configureMediaMTXOutput(
@@ -333,6 +333,12 @@ srt: false
 moq: false
 
 paths:
+  "~^app/(.+)$":
+    forward:
+      - dest: "rtmps://ingest.global-contribute.live-video.net/app#$G1?$MTX_QUERY"
+
+  "~^sources/(.+)$": {}
+
   all_others:
 `, apiAddress, rtmpAddress), nil
 }
@@ -406,7 +412,7 @@ func validateMediaMTXConfig(
 	validateCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(
+	cmd := newChildCommandContext(
 		validateCtx,
 		binary,
 		"--validate-conf="+config,

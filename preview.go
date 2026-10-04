@@ -158,7 +158,7 @@ func (a *App) startPreview(id string, videoOrder, audioOrder int) (PreviewState,
 		"-hls_segment_filename", segments,
 		playlist,
 	}
-	cmd := exec.Command(a.settings.FFmpegBin, args...)
+	cmd := newChildCommand(a.settings.FFmpegBin, args...)
 	logger := newRingLog(120, sourcePath)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = logger

@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -29,7 +28,7 @@ type procCPUSample struct {
 }
 
 func detectClockTicks() float64 {
-	out, err := exec.Command("getconf", "CLK_TCK").Output()
+	out, err := newChildCommand("getconf", "CLK_TCK").Output()
 	if err == nil {
 		if n, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64); err == nil && n > 0 {
 			return n
