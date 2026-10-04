@@ -316,6 +316,9 @@ cp "$ROOT/third_party/FYNE-SYSTRAY-LICENSE.txt" \
 cp "$ROOT/third_party/GOLANG-X-SYS-LICENSE.txt" \
   "$WINDOWS_DIR/licenses/GOLANG-X-SYS-LICENSE.txt"
 
+cp "$ROOT/third_party/GODBUS-DBUS-LICENSE.txt" \
+  "$WINDOWS_DIR/licenses/GODBUS-DBUS-LICENSE.txt"
+
 echo
 echo "=== MANIFESTES ==="
 

@@ -72,7 +72,7 @@ Usage:
   Windows notification-area integration for
   Ylyxium Multistream Manager.
 
-License text:
+License text in the Windows portable archive:
   licenses/FYNE-SYSTRAY-LICENSE.txt
 
 
@@ -86,5 +86,20 @@ Usage:
   Low-level Windows system integration used by the
   Windows desktop build.
 
-License text:
+License text in the Windows portable archive:
   licenses/GOLANG-X-SYS-LICENSE.txt
+
+Godbus D-Bus
+============
+
+Component:
+  github.com/godbus/dbus/v5 v5.1.0
+
+Usage:
+  Indirect Go dependency embedded in the Windows desktop build.
+
+License:
+  BSD 2-Clause
+
+License text in the Windows portable archive:
+  licenses/GODBUS-DBUS-LICENSE.txt

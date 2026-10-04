@@ -1,323 +1,843 @@
-# Ylyxium Multistream Manager v0.4.2
+# Ylyxium Multistream Manager v0.5.0
 
-WebUI autonome pour piloter plusieurs sorties RTMP/RTMPS à partir du flux Enhanced RTMP reçu par MediaMTX.
+Ylyxium Multistream Manager est une WebUI autonome permettant de piloter
+plusieurs sorties RTMP/RTMPS à partir d'une ou plusieurs sources reçues par
+MediaMTX.
 
-La v0.4.2 conserve l'architecture robuste validée jusque-là : un FFmpeg indépendant par destination, vidéo en copie directe dès que possible, aperçu HLS isolé et fonctions d'exploitation (authentification, métriques, logs rotatifs, historique, import/export et catalogue externalisé).
+Le projet est conçu en priorité pour les flux Enhanced RTMP / Enhanced
+Broadcasting, tout en conservant la possibilité d'utiliser des flux RTMP
+classiques compatibles.
 
-Cette version rend l'**adaptation audio automatique optionnelle par destination** et corrige le faux positif FFmpeg observé lors de l'arrêt normal du stream source.
+La v0.5.0 introduit principalement :
 
-## Nouveautés v0.4.2
+- des distributions portables Windows x64 et Linux x64 ;
+- FFmpeg, FFprobe et le MediaMTX Enhanced RTMP requis directement embarqués
+  dans les archives portables ;
+- la supervision automatique de MediaMTX en mode portable ;
+- un mode bureau Windows avec icône dans la zone de notification ;
+- la gestion de plusieurs sources MediaMTX ;
+- le choix de la source indépendamment pour chaque destination ;
+- le rebranding Ylyxium Multistream Manager ;
+- une image Docker Manager mise à jour pour v0.5.0 ;
+- la conservation du mode Docker avec MediaMTX externe.
 
-### Adaptation audio automatique au choix
+## Architecture
 
-Chaque destination possède désormais une case **Adaptation audio automatique**, décochée par défaut.
+Chaque destination possède son propre processus FFmpeg.
 
-- case décochée : l'audio sélectionné reste en `-c:a copy`, même si le preset indique par exemple une limite à 128 kb/s ; la WebUI affiche alors un avertissement explicite ;
-- case cochée : si l'audio dépasse les contraintes connues et qu'une adaptation sûre est disponible, le Manager ne réencode que l'audio ;
-- une piste déjà compatible reste toujours en copie directe, quelle que soit la case.
+Le Manager ne mutualise pas les transcodages entre destinations.
 
-Le réglage est stocké dans `config.json` sous `auto_adapt_audio`. Une ancienne destination qui ne possède pas ce champ est chargée avec la valeur `false`, donc sans adaptation automatique.
+Lorsqu'un flux est compatible avec la destination :
 
-Exemple avec une source AAC autour de 160 kb/s : Steam peut soit conserver ce flux tel quel, soit produire AAC 128 kb/s si la case est activée.
+- la vidéo est copiée avec `-c:v copy` ;
+- l'audio est copié avec `-c:a copy` ;
+- si l'adaptation audio automatique est activée et nécessaire, seul l'audio
+  est réencodé ;
+- un transcodage vidéo nécessaire est actuellement signalé par le diagnostic,
+  mais n'est pas lancé automatiquement.
 
-### Arrêt propre de la source OBS
-
-Lorsque OBS cesse de publier, FFmpeg peut écrire :
+Le MediaMTX utilisé par le projet est la version Enhanced RTMP personnalisée :
 
 ```text
-Error during demuxing: Input/output error
+MediaMTX v1.21.1-enhanced-rtmp.1
 ```
 
-Pour notre entrée RTMP locale, cette ligne correspond généralement à la disparition normale de la source. La v0.4.2 la classe comme information et laisse au poller MediaMTX un court délai pour confirmer l'arrêt de la source. Si la source est effectivement hors ligne, aucun état `ERREUR`, retry ni événement d'historique n'est créé. Si la source reste en ligne, une sortie FFmpeg anormale continue d'être traitée comme une vraie panne.
+Elle utilise le gortmplib personnalisé correspondant :
 
-### Authentification WebUI
+```text
+gortmplib v1.0.3-enhanced-rtmp.1
+```
 
-L'authentification est activée dès que **les deux** variables suivantes sont définies :
+Un MediaMTX upstream standard ne remplace pas cette version pour les fonctions
+Enhanced RTMP / multitrack utilisées par le projet.
 
-- `AUTH_USERNAME`
-- `AUTH_PASSWORD_HASH`
+## Sources MediaMTX
 
-Le mot de passe en clair n'est jamais stocké par le Manager. `AUTH_PASSWORD_HASH` utilise le format PBKDF2-HMAC-SHA256 salé à 600 000 itérations.
+Deux familles de chemins sont utilisées par défaut.
 
-La génération interactive sécurisée du hash, introduite en v0.4.1, reste disponible. Le mot de passe n'est ni passé dans les arguments du processus, ni placé dans une variable d'environnement, ni affiché par le terminal. Il est saisi deux fois avec l'écho désactivé.
+### Source principale Twitch / Enhanced RTMP
 
-Avec le binaire :
+```text
+app/<cle-de-stream>
+```
+
+Cette famille correspond à la source principale historique.
+
+La configuration MediaMTX portable générée par défaut contient un forward vers
+l'ingest Twitch :
+
+```text
+app/<cle-de-stream>
+    |
+    +--> Twitch
+```
+
+Le forward conserve également la query string RTMP utilisée par Enhanced
+Broadcasting.
+
+Publier avec une vraie clé Twitch sous `app/*` peut donc démarrer une diffusion
+réelle vers Twitch.
+
+### Sources supplémentaires
+
+```text
+sources/<nom>
+```
+
+Exemples :
+
+```text
+sources/studio
+sources/mobile
+sources/vertical
+```
+
+Ces sources sont découvertes automatiquement par le Manager et ne sont pas
+forwardées automatiquement vers Twitch.
+
+Chaque destination Ylyxium peut sélectionner indépendamment la source à
+utiliser.
+
+## Mode portable
+
+Les distributions portables sont disponibles pour :
+
+- Windows x64 ;
+- Linux x64.
+
+Les archives contiennent le Manager ainsi que les binaires compatibles de
+FFmpeg, FFprobe et du MediaMTX Enhanced RTMP utilisé par le projet.
+
+Aucune installation globale de FFmpeg ou MediaMTX n'est nécessaire.
+
+### Windows x64
+
+Archive :
+
+```text
+Ylyxium-Multistream-Manager-v0.5.0-windows-x64.zip
+```
+
+Exécutable :
+
+```text
+YlyxiumMultistreamManager.exe
+```
+
+Après extraction, lancer :
+
+```powershell
+.\YlyxiumMultistreamManager.exe
+```
+
+Le mode Windows utilise une icône dans la zone de notification.
+
+Le menu permet notamment :
+
+- d'ouvrir le tableau de bord ;
+- de consulter l'état du Manager ;
+- de redémarrer le Manager ;
+- d'afficher les informations de version ;
+- d'arrêter proprement l'application.
+
+Les processus enfants MediaMTX, FFmpeg et FFprobe sont lancés sans fenêtres
+console supplémentaires.
+
+Le tableau de bord est disponible par défaut sur :
+
+```text
+http://127.0.0.1:8090
+```
+
+### Linux x64
+
+Archive :
+
+```text
+Ylyxium-Multistream-Manager-v0.5.0-linux-x64.tar.gz
+```
+
+Exécutable :
+
+```text
+YlyxiumMultistreamManager
+```
+
+Après extraction :
 
 ```bash
-./multistream-manager --hash-password
+./YlyxiumMultistreamManager
 ```
 
-Avec l'image Docker :
+Le tableau de bord est disponible par défaut sur :
+
+```text
+http://127.0.0.1:8090
+```
+
+### Arborescence portable
+
+L'arborescence utilise notamment :
+
+```text
+YlyxiumMultistreamManager[.exe]
+bin/
+  ffmpeg[.exe]
+  ffprobe[.exe]
+  mediamtx[.exe]
+
+data/
+  config.json
+  presets.json
+  error-history.json
+  mediamtx.yml
+  previews/
+
+logs/
+  destinations/
+```
+
+Sous Windows, les journaux du Manager et du MediaMTX supervisé sont également
+écrits dans le dossier `logs/`.
+
+Les logs de destinations sont stockés sous :
+
+```text
+logs/destinations/
+```
+
+Le dossier `logs/` reste volontairement séparé de `data/` en mode portable.
+
+## Supervision MediaMTX en mode portable
+
+Lorsque les binaires portables requis sont présents, le Manager :
+
+1. utilise les exécutables locaux de `bin/` ;
+2. utilise `data/` comme dossier de données ;
+3. utilise `logs/` comme dossier de logs ;
+4. valide la configuration MediaMTX ;
+5. démarre MediaMTX ;
+6. attend que son API soit disponible ;
+7. démarre ensuite la WebUI.
+
+Ports par défaut :
+
+```text
+Manager HTTP : 8090
+MediaMTX API : 9999
+MediaMTX RTMP: 1938
+```
+
+Si une instance MediaMTX compatible répond déjà sur l'API configurée, le
+Manager peut réutiliser cette instance externe au lieu d'en démarrer une
+nouvelle. Une instance externe n'est alors pas arrêtée par le Manager.
+
+## Mode Docker
+
+En conteneur, Ylyxium Multistream Manager fonctionne en mode :
+
+```text
+system/container
+```
+
+FFmpeg et FFprobe proviennent de l'image Docker.
+
+MediaMTX reste volontairement externe au conteneur du Manager.
+
+Image Manager recommandée :
+
+```text
+ylyxium-multistream-manager:v0.5.0
+```
+
+Le Dockerfile conserve également l'ancien chemin interne :
+
+```text
+/usr/local/bin/multistream-manager
+```
+
+comme alias de compatibilité vers :
+
+```text
+/usr/local/bin/ylyxium-multistream-manager
+```
+
+### Construction de l'image Manager
+
+Depuis le dépôt :
 
 ```bash
-docker run --rm -it multistream-manager:v0.4.2 --hash-password
+docker build \
+  -t ylyxium-multistream-manager:v0.5.0 \
+  .
 ```
 
-Le programme affiche :
+### MediaMTX Docker
+
+Le conteneur Manager n'embarque pas MediaMTX. Il faut donc construire ou
+fournir séparément l'image Enhanced RTMP personnalisée.
+
+La version validée pour v0.5.0 est :
 
 ```text
-Mot de passe :
-Confirmer le mot de passe :
-$pbkdf2-sha256$600000$...$...
+mediamtx:twitch-eb-1.21.1-enhanced-rtmp.1
 ```
 
-Les deux saisies sont invisibles. Seul le hash final est écrit sur la sortie standard.
-
-Pour une automatisation non interactive, un mode distinct lit le secret uniquement depuis l'entrée standard :
+Pour construire cette image depuis les sources figées :
 
 ```bash
-docker run --rm -i multistream-manager:v0.4.2 --hash-password-stdin < /chemin/vers/un-secret-protege
+git clone \
+  --recurse-submodules \
+  --branch v1.21.1-enhanced-rtmp.1 \
+  https://github.com/YannLSF/mediamtx.git
+
+cd mediamtx
+
+docker build \
+  -f Dockerfile.twitch \
+  -t mediamtx:twitch-eb-1.21.1-enhanced-rtmp.1 \
+  .
 ```
 
-Évite de construire cette entrée standard avec un mot de passe littéral dans la ligne de commande : cela annulerait l'intérêt du mode sécurisé en laissant potentiellement le secret dans l'historique du shell.
-
-Le résultat ressemble à :
+Les révisions validées sont :
 
 ```text
-$pbkdf2-sha256$600000$...$...
+MediaMTX : 825b59f870bc1c493dd326e68dc33f81a0420263
+gortmplib: cb3eae9f5733c14c01d19398520a140c8927c29b
 ```
 
-Il faut ensuite fournir **ce hash**, et non le mot de passe :
+Vérifier ensuite :
 
 ```bash
--e AUTH_USERNAME='admin' \
--e AUTH_PASSWORD_HASH='$pbkdf2-sha256$600000$...$...'
+docker run --rm \
+  mediamtx:twitch-eb-1.21.1-enhanced-rtmp.1 \
+  --version
 ```
 
-Les sessions WebUI utilisent un token aléatoire conservé uniquement en mémoire. Le cookie est `HttpOnly` et `SameSite=Strict`. Les sessions expirent après 24 h par défaut.
-
-Variables associées :
-
-- `AUTH_SESSION_HOURS` : durée de session, défaut `24`
-- `AUTH_COOKIE_SECURE` : défaut `false`; mettre `true` lorsque la WebUI est servie en HTTPS
-
-Si `AUTH_USERNAME` et `AUTH_PASSWORD_HASH` sont tous les deux absents, l'authentification reste désactivée pour conserver la compatibilité avec les installations locales existantes. Si une seule des deux variables est présente, le Manager refuse de démarrer.
-
-Après cinq échecs de connexion depuis la même adresse, les nouvelles tentatives sont temporairement bloquées pendant 30 secondes.
-
-> L'authentification ne remplace pas TLS. Si le port est accessible hors d'un LAN/VPN de confiance, place le Manager derrière un reverse proxy HTTPS et active `AUTH_COOKIE_SECURE=true`.
-
-### Statistiques CPU / RAM
-
-La WebUI affiche maintenant les ressources du Manager et de ses FFmpeg :
-
-- processus Ylyxium Multistream Manager ;
-- ensemble des forwards FFmpeg ;
-- ensemble des aperçus HLS FFmpeg ;
-- total ;
-- CPU/RAM de chaque destination active.
-
-Les métriques sont lues depuis `/proc` sous Linux. Le CPU d'un processus peut dépasser 100 % lorsqu'il utilise plusieurs cœurs, ce qui est normal pour cette représentation.
-
-### Logs FFmpeg rotatifs
-
-Les logs affichés dans la WebUI restent conservés dans une ring buffer bornée, mais les forwards écrivent aussi des fichiers persistants dans :
+La sortie attendue est :
 
 ```text
-/data/logs/<destination>.log
+v1.21.1-enhanced-rtmp.1
 ```
 
-La rotation est effectuée par le Manager. Les clés de stream et le path MediaMTX actif sont masqués avant l'écriture sur disque.
-
-Variables :
-
-- `LOG_RING_LINES` : lignes conservées en mémoire par destination, défaut `500`
-- `LOG_MAX_BYTES` : taille maximale d'un fichier avant rotation, défaut `2097152` (2 Mio)
-- `LOG_BACKUPS` : nombre de sauvegardes rotatives, défaut `3`
-
-Avec les valeurs par défaut, une destination peut donc avoir :
+Le Manager doit pouvoir joindre :
 
 ```text
-kick.log
-kick.log.1
-kick.log.2
-kick.log.3
+http://<conteneur-mediamtx>:9999
+rtmp://<conteneur-mediamtx>:1938
 ```
 
-Les logs du processus principal continuent d'être envoyés sur stdout/stderr afin que Docker ou le runtime du conteneur puisse appliquer sa propre politique de rotation.
+MediaMTX doit donc autoriser l'accès API depuis le réseau Docker privé.
 
-### Historique persistant des erreurs
+Exemple minimal adapté à cette architecture :
 
-Les erreurs de forwards et d'aperçus sont enregistrées dans :
+```yaml
+logLevel: info
+
+authMethod: internal
+authInternalUsers:
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: publish
+      - action: read
+      - action: playback
+      - action: api
+
+api: true
+apiAddress: :9999
+
+rtmp: true
+rtmpEncryption: "no"
+rtmpAddress: :1938
+
+rtsp: false
+hls: false
+webrtc: false
+srt: false
+moq: false
+
+paths:
+  "~^app/(.+)$":
+    forward:
+      - dest: "rtmps://ingest.global-contribute.live-video.net/app#$G1?$MTX_QUERY"
+
+  "~^sources/(.+)$": {}
+
+  all_others:
+```
+
+Cette configuration est destinée à un réseau Docker privé dédié.
+
+Il est recommandé de ne pas publier le port API MediaMTX `9999` sur l'hôte.
+
+### Exemple Docker avec réseau privé
+
+Créer un réseau :
+
+```bash
+docker network create ylyxium-multistream
+```
+
+Lancer le MediaMTX Enhanced RTMP :
+
+```bash
+docker run -d \
+  --name ylyxium-mediamtx \
+  --network ylyxium-multistream \
+  -p 1938:1938 \
+  -v "$PWD/mediamtx.yml:/mediamtx.yml:ro" \
+  mediamtx:twitch-eb-1.21.1-enhanced-rtmp.1 \
+  /mediamtx.yml
+```
+
+Le port `1938` est publié pour permettre à OBS ou à un autre encodeur d'envoyer
+le flux RTMP.
+
+Le port API `9999` reste uniquement accessible sur le réseau Docker privé.
+
+Lancer le Manager :
+
+```bash
+docker run -d \
+  --name ylyxium-multistream-manager \
+  --network ylyxium-multistream \
+  -p 8090:8090 \
+  -v "$HOME/ylyxium-multistream-manager-data:/data" \
+  -e MTX_API="http://ylyxium-mediamtx:9999" \
+  -e MTX_RTMP_BASE="rtmp://ylyxium-mediamtx:1938" \
+  -e MTX_PATH_PREFIX="app/" \
+  -e MTX_SOURCES_PREFIX="sources/" \
+  ylyxium-multistream-manager:v0.5.0
+```
+
+Ouvrir ensuite :
 
 ```text
-/data/error-history.json
+http://IP_DU_SERVEUR:8090
 ```
 
-La WebUI possède un bouton **Historique** pour consulter les événements les plus récents et vider l'historique.
+## OBS
 
-- horodatage ;
-- destination ;
-- type (`forward` ou `preview`) ;
-- message ;
-- numéro de tentative automatique lorsqu'il existe.
-
-`ERROR_HISTORY_LIMIT` fixe le nombre maximal d'événements conservés, défaut `500`.
-
-### Import / export de configuration
-
-Le panneau **Gestion** permet :
-
-- d'exporter le `config.json` courant ;
-- d'importer un `config.json` précédemment exporté.
-
-L'import remplace toutes les destinations et arrête proprement les forwards en cours avant de charger la nouvelle configuration.
-
-**Attention : l'export de configuration contient les clés de stream.** Le fichier doit donc être traité comme un secret.
-
-### Catalogue de presets séparé du binaire
-
-Au premier démarrage de la v0.4.2, le catalogue embarqué est copié vers :
+Avec les ports par défaut, le serveur RTMP est :
 
 ```text
-/data/presets.json
+rtmp://IP_DU_SERVEUR:1938/app
 ```
 
-Le Manager utilise ensuite ce fichier comme catalogue actif. Il n'est donc plus nécessaire de recompiler le binaire pour modifier une URL, une limite de bitrate ou ajouter un preset.
-
-Depuis **Gestion**, il est possible de :
-
-- exporter le catalogue courant ;
-- importer un nouveau `presets.json` ;
-- recharger `/data/presets.json` après une modification directe sur le volume.
-
-Le changement prend effet immédiatement pour le diagnostic de compatibilité et pour les prochains démarrages de destination. Un forward déjà actif n'est pas redémarré automatiquement lorsqu'un preset change.
-
-Un catalogue importé doit contenir des IDs uniques et conserver le preset `custom`.
-
-## Comportement de streaming conservé depuis v0.3.2
-
-Chaque destination possède toujours son **propre processus FFmpeg**. Il n'y a aucune mutualisation des transcodages audio à ce stade.
-
-Pour chaque destination :
-
-- vidéo compatible : `-c:v copy` ;
-- audio compatible : `-c:a copy` ;
-- audio incompatible : copie directe par défaut ; réencodage audio uniquement si **Adaptation audio automatique** est cochée ;
-- vidéo incompatible : le Manager signale qu'un transcodage vidéo est requis, mais ne le lance pas automatiquement.
-
-Exemple avec une source AAC autour de 160 kb/s / 48 kHz :
+pour la source principale, ou :
 
 ```text
-Kick       adaptation décochée -> vidéo copy + audio copy
-Steam      adaptation décochée -> vidéo copy + audio copy + avertissement
-Steam      adaptation cochée   -> vidéo copy + AAC 128 kb/s
-RUTUBE     adaptation cochée   -> vidéo copy + AAC 128 kb/s / 44,1 kHz
+rtmp://IP_DU_SERVEUR:1938/sources
 ```
 
-FFprobe pouvant observer un AAC nominal à 160 kb/s autour de 164 kb/s, le moteur applique une petite tolérance de mesure : 4 kb/s ou 2,5 %, le plus grand des deux.
+pour une source supplémentaire.
+
+La clé de stream complète le chemin.
+
+Exemples :
+
+```text
+rtmp://IP_DU_SERVEUR:1938/app/<cle>
+rtmp://IP_DU_SERVEUR:1938/sources/studio
+```
+
+Attention : la publication sous `app/*` avec une vraie clé Twitch peut être
+forwardée vers Twitch par la configuration MediaMTX par défaut.
 
 ## Aperçu HLS
 
-Chaque destination conserve son aperçu local à la demande :
+Chaque destination peut utiliser un aperçu local à la demande avec :
 
-- FFmpeg distinct ;
-- choix indépendant vidéo/audio ;
-- vidéo et audio en copie directe ;
-- playlist temporaire dans `/data/previews/<destination>` ;
-- attente réelle du premier segment avant l'état **APERÇU ACTIF** ;
-- arrêt automatique lorsque la fenêtre est fermée.
+- un processus FFmpeg distinct ;
+- choix indépendant de la piste vidéo ;
+- choix indépendant de la piste audio ;
+- copie directe des flux compatibles ;
+- playlist HLS temporaire ;
+- attente du premier segment avant de déclarer l'aperçu actif ;
+- arrêt lorsque l'aperçu n'est plus utilisé.
 
-La WebUI charge actuellement `hls.js` depuis jsDelivr. Les navigateurs sans prise en charge HLS native ont donc besoin d'accéder à ce CDN.
+Les fichiers temporaires sont stockés sous `data/previews/` en mode portable
+et sous `/data/previews/` en mode conteneur.
 
-## Mise à niveau depuis v0.3.2 / v0.4.x
+La WebUI charge actuellement `hls.js` depuis jsDelivr lorsque le navigateur ne
+dispose pas d'une prise en charge HLS native.
 
-Conserve simplement le même volume `/data`. Le format reste rétrocompatible ; la v0.4.2 ajoute seulement le champ booléen `auto_adapt_audio`. Pour une ancienne destination, ce champ absent vaut `false`. Pense donc à cocher **Adaptation audio automatique** sur les destinations pour lesquelles tu souhaites conserver le comportement de transcodage audio de la v0.4.1.
+## Adaptation audio
 
-Construire :
+L'adaptation audio automatique est configurable indépendamment par
+destination.
 
-```bash
-cd ~/multistream-manager-v0.4.2
-docker build -t multistream-manager:v0.4.2 .
-```
-
-Générer le hash du mot de passe avec saisie masquée et confirmation :
-
-```bash
-docker run --rm -it multistream-manager:v0.4.2 --hash-password
-```
-
-Puis lancer, par exemple :
-
-```bash
-docker stop multistream-manager 2>/dev/null || true
-
-docker run --rm \
-  --name multistream-manager \
-  --network host \
-  -v "$HOME/multistream-manager-data:/data" \
-  -e MTX_API="http://127.0.0.1:9999" \
-  -e MTX_RTMP_BASE="rtmp://127.0.0.1:1938" \
-  -e MTX_PATH_PREFIX="app/" \
-  -e AUTH_USERNAME="admin" \
-  -e AUTH_PASSWORD_HASH='$pbkdf2-sha256$600000$REMPLACER$PAR_LE_HASH_GENERE' \
-  multistream-manager:v0.4.2
-```
-
-Puis ouvrir :
+Si elle est désactivée :
 
 ```text
-http://IP_DE_LA_VM_DOCKER:8090
+audio compatible   -> copie directe
+audio incompatible -> copie directe + avertissement
 ```
 
-Pour un reverse proxy HTTPS :
+Si elle est activée :
+
+```text
+audio compatible   -> copie directe
+audio adaptable    -> réencodage audio automatique
+```
+
+La vidéo compatible reste en copie directe.
+
+Le transcodage vidéo reste pour le moment un diagnostic uniquement.
+
+## Authentification WebUI
+
+L'authentification est activée lorsque les deux variables suivantes sont
+définies :
+
+```text
+AUTH_USERNAME
+AUTH_PASSWORD_HASH
+```
+
+Le Manager ne stocke pas le mot de passe en clair.
+
+Le hash utilise PBKDF2-HMAC-SHA256 salé à 600 000 itérations.
+
+### Générer un hash en mode portable
+
+Linux :
 
 ```bash
--e AUTH_COOKIE_SECURE=true
+./YlyxiumMultistreamManager --hash-password
 ```
 
-## Dossier `/data`
+Windows :
 
-La v0.4.2 utilise :
+```powershell
+.\YlyxiumMultistreamManager.exe --hash-password
+```
+
+### Générer un hash avec Docker
+
+```bash
+docker run --rm -it \
+  ylyxium-multistream-manager:v0.5.0 \
+  --hash-password
+```
+
+Mode non interactif :
+
+```bash
+docker run --rm -i \
+  ylyxium-multistream-manager:v0.5.0 \
+  --hash-password-stdin \
+  < /chemin/vers/un-secret-protege
+```
+
+Ne place pas un mot de passe littéral dans la ligne de commande ou
+l'historique du shell.
+
+Fournir ensuite le hash :
+
+```bash
+-e AUTH_USERNAME="admin" \
+-e AUTH_PASSWORD_HASH='$pbkdf2-sha256$600000$...$...'
+```
+
+Variables associées :
+
+```text
+AUTH_SESSION_HOURS
+AUTH_COOKIE_SECURE
+```
+
+`AUTH_SESSION_HOURS` vaut `24` par défaut.
+
+`AUTH_COOKIE_SECURE` vaut `false` par défaut et doit être activé lorsque la
+WebUI est publiée derrière HTTPS.
+
+Si une seule des deux variables `AUTH_USERNAME` et `AUTH_PASSWORD_HASH` est
+présente, le Manager refuse de démarrer.
+
+L'authentification ne remplace pas TLS. Lorsqu'une WebUI est accessible hors
+d'un LAN ou VPN de confiance, utiliser un reverse proxy HTTPS et :
+
+```text
+AUTH_COOKIE_SECURE=true
+```
+
+## Données persistantes
+
+### Portable
+
+```text
+data/config.json
+data/presets.json
+data/error-history.json
+data/mediamtx.yml
+data/previews/
+
+logs/destinations/
+```
+
+### Docker / serveur
 
 ```text
 /data/config.json
 /data/presets.json
 /data/error-history.json
-/data/logs/
 /data/previews/
+/data/logs/destinations/
 ```
 
-Les fichiers sensibles créés par le Manager utilisent le mode `0600`; les répertoires de données temporaires/logs sont créés avec des permissions restrictives.
+`config.json` contient notamment les destinations et leurs clés de stream.
+
+Les exports de configuration contiennent donc des secrets et doivent être
+protégés comme tels.
+
+`presets.json` est le catalogue actif des plateformes. Il peut être
+exporté, importé ou modifié sans recompilation du Manager.
+
+## Logs
+
+Chaque destination possède son journal FFmpeg persistant.
+
+En mode portable :
+
+```text
+logs/destinations/<destination>.log
+```
+
+En mode Docker / serveur :
+
+```text
+/data/logs/destinations/<destination>.log
+```
+
+La rotation est assurée par le Manager.
+
+Variables :
+
+```text
+LOG_RING_LINES=500
+LOG_MAX_BYTES=2097152
+LOG_BACKUPS=3
+ERROR_HISTORY_LIMIT=500
+```
+
+Les clés de stream et le chemin MediaMTX actif sont masqués avant l'écriture
+des logs persistants.
+
+L'historique des erreurs est conservé dans :
+
+```text
+data/error-history.json
+```
+
+ou :
+
+```text
+/data/error-history.json
+```
+
+selon le mode d'exécution.
+
+## Import / export
+
+Le panneau Gestion permet notamment :
+
+- d'exporter `config.json` ;
+- d'importer une configuration ;
+- d'exporter le catalogue `presets.json` ;
+- d'importer un catalogue ;
+- de recharger le catalogue actif ;
+- de consulter et vider l'historique des erreurs.
+
+L'import d'une configuration remplace les destinations existantes et arrête
+proprement les forwards concernés avant le chargement.
+
+## Catalogue de plateformes
+
+Le catalogue embarqué couvre de nombreuses plateformes RTMP/RTMPS, notamment :
+
+- Kick ;
+- Trovo ;
+- YouTube Live ;
+- Facebook Live ;
+- Instagram Live ;
+- TikTok LIVE ;
+- Telegram Live ;
+- LinkedIn Live ;
+- X / Media Studio ;
+- niconico Live ;
+- Nimo TV ;
+- FC2 Live ;
+- GoodGame ;
+- Odysee ;
+- OK.ru ;
+- OnlyFans ;
+- Rumble ;
+- Scoop Live ;
+- Vaughn Live ;
+- VK Video Live ;
+- Hou.la ;
+- Vimeo Live ;
+- Steam Broadcasting ;
+- RUTUBE ;
+- SOOP / AfreecaTV ;
+- Picarto ;
+- Piczel.tv ;
+- Mixcloud Live ;
+- Aparat ;
+- KakaoTV ;
+- Boosty ;
+- Twitch ;
+- DLive ;
+- Livepeer Studio ;
+- VRCDN ;
+- différents services de relay et événementiels ;
+- RTMP / RTMPS personnalisé.
+
+Les contraintes des plateformes peuvent évoluer.
+
+Le fichier actif `presets.json` permet de corriger ou d'étendre le catalogue
+sans reconstruire le binaire.
 
 ## Variables d'environnement
 
-### Source / exécution
+### Serveur
 
-- `BIND` : adresse HTTP, défaut `:8090`
-- `DATA_DIR` : défaut `/data`
-- `MTX_API` : défaut `http://127.0.0.1:9999`
-- `MTX_RTMP_BASE` : défaut `rtmp://127.0.0.1:1938`
-- `MTX_PATH_PREFIX` : défaut `app/`
-- `POLL_SECONDS` : défaut `2`
-- `FFMPEG_BIN` : défaut `ffmpeg`
-- `FFPROBE_BIN` : défaut `ffprobe`
+```text
+BIND=:8090
+DATA_DIR=/data
+```
+
+### MediaMTX
+
+```text
+MTX_API=http://127.0.0.1:9999
+MTX_RTMP_BASE=rtmp://127.0.0.1:1938
+MTX_PATH_PREFIX=app/
+MTX_SOURCES_PREFIX=sources/
+POLL_SECONDS=2
+```
+
+### Binaires
+
+```text
+FFMPEG_BIN=ffmpeg
+FFPROBE_BIN=ffprobe
+```
+
+Les distributions portables utilisent automatiquement les binaires contenus
+dans leur dossier `bin/`.
 
 ### Authentification
 
-- `AUTH_USERNAME`
-- `AUTH_PASSWORD_HASH`
-- `AUTH_SESSION_HOURS` : défaut `24`
-- `AUTH_COOKIE_SECURE` : défaut `false`
+```text
+AUTH_USERNAME
+AUTH_PASSWORD_HASH
+AUTH_SESSION_HOURS=24
+AUTH_COOKIE_SECURE=false
+```
 
-### Logs / historique
+### Logs et historique
 
-- `LOG_RING_LINES` : défaut `500`
-- `LOG_MAX_BYTES` : défaut `2097152`
-- `LOG_BACKUPS` : défaut `3`
-- `ERROR_HISTORY_LIMIT` : défaut `500`
+```text
+LOG_RING_LINES=500
+LOG_MAX_BYTES=2097152
+LOG_BACKUPS=3
+ERROR_HISTORY_LIMIT=500
+```
 
-## Catalogue initial
+## Mise à niveau depuis v0.4.x
 
-Le catalogue initial v0.4.2 reprend les 51 presets de la v0.3.x, dont notamment Kick, Trovo, YouTube, Facebook, Instagram, TikTok, Telegram, LinkedIn, X, niconico, Nimo, FC2, GoodGame, Odysee, OK.ru, OnlyFans, Rumble, Vaughn, VK Video Live, Hou.la, Vimeo, Steam, RUTUBE, SOOP, Picarto, Twitch, DLive, Livepeer Studio, VRCDN, WPStream, Switchboard Live et Custom RTMP/RTMPS.
+Les données v0.4.x restent réutilisables.
 
-À partir de cette version, le fichier `/data/presets.json` est la source active et peut évoluer indépendamment du binaire.
+### Depuis Docker
+
+Conserver le volume `/data`.
+
+Puis remplacer l'ancienne image Manager par :
+
+```text
+ylyxium-multistream-manager:v0.5.0
+```
+
+Le binaire interne historique :
+
+```text
+/usr/local/bin/multistream-manager
+```
+
+reste disponible sous forme d'alias pour limiter les ruptures de scripts.
+
+La v0.5.0 ajoute la notion de source par destination. Les anciennes
+destinations sans source explicite utilisent la source principale.
+
+Les destinations sans champ `auto_adapt_audio` continuent à charger ce réglage
+à `false`.
+
+Pour une topologie Docker en conteneurs séparés, ne pas utiliser
+`127.0.0.1` comme adresse MediaMTX dans le Manager : utiliser le nom du
+conteneur sur un réseau Docker commun.
+
+### Vers le mode portable
+
+Extraire l'archive v0.5.0 dans un nouveau dossier.
+
+Les données persistantes du Manager peuvent ensuite être importées depuis
+l'ancienne installation.
+
+Ne remplace pas arbitrairement les exécutables FFmpeg, FFprobe ou MediaMTX de
+l'archive portable : les versions incluses ont été validées ensemble.
+
+## Composants embarqués
+
+Les distributions portables v0.5.0 embarquent notamment :
+
+```text
+Ylyxium Multistream Manager 0.5.0
+MediaMTX 1.21.1-enhanced-rtmp.1
+FFmpeg / FFprobe 9.0
+```
+
+Les fichiers de licences et notices des composants tiers distribués sont
+inclus dans les archives portables.
+
+Consulter notamment le dossier `licenses/` et les notices tierces fournies
+avec la distribution.
+
+## Sécurité
+
+Quelques règles importantes :
+
+- traiter `config.json` et ses exports comme des secrets ;
+- ne pas exposer l'API MediaMTX `9999` publiquement ;
+- utiliser un réseau Docker privé entre Manager et MediaMTX ;
+- protéger la WebUI par authentification lorsqu'elle n'est pas strictement
+  locale ;
+- utiliser HTTPS dès que le trafic quitte un réseau local ou VPN de confiance ;
+- ne pas publier une vraie clé Twitch sous `app/*` pendant un test si une
+  diffusion réelle n'est pas souhaitée.
 
 ## Limites connues
 
-- Le transcodage vidéo reste un diagnostic uniquement.
-- L'intervalle réel entre keyframes n'est pas encore mesuré automatiquement.
-- Les transcodages audio identiques ne sont volontairement pas mutualisés avant l'audit de ressources en production.
-- Les règles des plateformes peuvent évoluer ; le catalogue externalisé est justement prévu pour permettre leur correction sans rebuild.
-- Les métriques CPU/RAM reposent sur `/proc` et ciblent donc le déploiement Linux/conteneur prévu par le projet.
-- L'authentification protège l'application mais ne chiffre pas HTTP : utilisez HTTPS dès que le trafic quitte un réseau de confiance.
+- le transcodage vidéo automatique n'est pas encore implémenté ;
+- l'intervalle réel entre keyframes n'est pas encore mesuré automatiquement ;
+- les transcodages audio identiques ne sont pas mutualisés ;
+- les règles et limites des plateformes peuvent évoluer ;
+- les métriques processus détaillées restent principalement adaptées au mode
+  Linux / conteneur ;
+- l'aperçu HLS peut nécessiter l'accès à jsDelivr pour charger `hls.js`.
+
+## Développement et release
+
+Les builds portables officiels sont produits depuis un arbre Git propre et
+contiennent un manifeste de build ainsi que les licences tierces nécessaires.
+
+Une release v0.5.0 doit être construite depuis le commit exact correspondant au
+tag `v0.5.0`.
+
+Les SHA256 publiés avec les archives doivent être vérifiés avant distribution.
+
+Le tag et la release ne doivent être créés qu'après validation des builds
+Windows, Linux et Docker.

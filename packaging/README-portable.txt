@@ -173,3 +173,15 @@ See:
   licenses/MEDIAMTX-LICENSE.txt
   THIRD-PARTY-NOTICES.txt
   BUILD-MANIFEST.txt
+
+WINDOWS GO DEPENDENCY LICENSES
+------------------------------
+
+The Windows portable archive additionally contains the license texts for the
+Go dependencies embedded by the desktop / notification-area build:
+
+  licenses/FYNE-SYSTRAY-LICENSE.txt
+  licenses/GOLANG-X-SYS-LICENSE.txt
+  licenses/GODBUS-DBUS-LICENSE.txt
+
+These Go dependencies are not linked into the Linux manager binary.
