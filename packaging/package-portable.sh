@@ -319,10 +319,83 @@ cp "$ROOT/third_party/GOLANG-X-SYS-LICENSE.txt" \
 echo
 echo "=== MANIFESTES ==="
 
-FF_CONFIG="$(
+FF_CONFIG_LINUX="$(
   "$LINUX_DIR/bin/ffmpeg" -version 2>&1 |
   sed -n 's/^configuration: //p'
 )"
+
+FF_CONFIG_WINDOWS="$(
+  python3 - "$WINDOWS_DIR/bin/ffmpeg.exe" <<'PYCONF'
+import re
+import sys
+from pathlib import Path
+
+data = Path(sys.argv[1]).read_bytes()
+
+chunks = re.findall(
+    rb"[\x20-\x7e]{80,}",
+    data,
+)
+
+candidates = []
+
+for raw in chunks:
+    text = raw.decode(
+        "ascii",
+        "replace",
+    )
+
+    start = text.find("--prefix=")
+
+    if start < 0:
+        continue
+
+    text = text[start:].strip()
+
+    if (
+        "--target-os=mingw32" in text
+        and "--cross-prefix=x86_64-w64-mingw32-" in text
+        and "--extra-version=" in text
+    ):
+        candidates.append(text)
+
+if not candidates:
+    raise SystemExit(
+        "FFmpeg Windows configuration not found"
+    )
+
+# Les binaires FFmpeg peuvent contenir plusieurs copies
+# identiques de cette chaine.
+config = max(
+    set(candidates),
+    key=len,
+)
+
+print(config)
+PYCONF
+)"
+
+[ -n "$FF_CONFIG_LINUX" ] ||
+  fail "Linux FFmpeg configuration is empty"
+
+[ -n "$FF_CONFIG_WINDOWS" ] ||
+  fail "Windows FFmpeg configuration is empty"
+
+case "$FF_CONFIG_LINUX" in
+  *"--target-os=linux"*)
+    ;;
+  *)
+    fail "Linux FFmpeg configuration has unexpected target"
+    ;;
+esac
+
+case "$FF_CONFIG_WINDOWS" in
+  *"--target-os=mingw32"*)
+    ;;
+  *)
+    fail "Windows FFmpeg configuration has unexpected target"
+    ;;
+esac
 
 MEDIAMTX_COMMIT="$(
   git -C "$MEDIAMTX_SOURCE" rev-parse HEAD
@@ -335,6 +408,7 @@ GORTMPLIB_COMMIT="$(
 write_manifest() {
   dir="$1"
   platform="$2"
+  ff_config="$3"
 
   {
     echo "Ylyxium Multistream Manager v$VERSION"
@@ -361,7 +435,7 @@ write_manifest() {
     echo "Variant: LGPL / FFmpeg 9.0"
     echo
     echo "FFmpeg configure:"
-    echo "$FF_CONFIG"
+    echo "$ff_config"
     echo
     echo "Files"
     echo "-----"
@@ -381,11 +455,13 @@ write_manifest() {
 
 write_manifest \
   "$LINUX_DIR" \
-  "linux-x64 (glibc >= 2.28, Linux >= 4.18)"
+  "linux-x64 (glibc >= 2.28, Linux >= 4.18)" \
+  "$FF_CONFIG_LINUX"
 
 write_manifest \
   "$WINDOWS_DIR" \
-  "windows-x64"
+  "windows-x64" \
+  "$FF_CONFIG_WINDOWS"
 
 echo
 echo "=== CONTROLES PACKAGES ==="
