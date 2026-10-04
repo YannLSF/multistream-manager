@@ -129,10 +129,20 @@ func (s *MediaMTXSupervisor) Start(ctx context.Context) error {
 
 	cmd := exec.Command(s.binary, s.config)
 	cmd.Env = mediaMTXChildEnvironment(os.Environ())
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+
+	closeOutput, err := configureMediaMTXOutput(
+		cmd,
+		s.settings,
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"configure MediaMTX output: %w",
+			err,
+		)
+	}
 
 	if err := cmd.Start(); err != nil {
+		closeOutput()
 		return fmt.Errorf("start MediaMTX: %w", err)
 	}
 
@@ -146,7 +156,11 @@ func (s *MediaMTXSupervisor) Start(ctx context.Context) error {
 	s.stopping = false
 	s.mu.Unlock()
 
-	go s.waitProcess(cmd, done)
+	go s.waitProcess(
+		cmd,
+		done,
+		closeOutput,
+	)
 
 	if err := s.waitUntilReady(ctx, 5*time.Second); err != nil {
 		_ = s.Stop()
@@ -162,8 +176,13 @@ func (s *MediaMTXSupervisor) Start(ctx context.Context) error {
 	return nil
 }
 
-func (s *MediaMTXSupervisor) waitProcess(cmd *exec.Cmd, done chan struct{}) {
+func (s *MediaMTXSupervisor) waitProcess(
+	cmd *exec.Cmd,
+	done chan struct{},
+	closeOutput func(),
+) {
 	err := cmd.Wait()
+	closeOutput()
 
 	s.mu.Lock()
 

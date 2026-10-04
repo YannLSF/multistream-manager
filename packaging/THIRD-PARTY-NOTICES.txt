@@ -60,3 +60,31 @@ MediaMTX is distributed under the MIT License.
 Its license text is included as:
 
   licenses/MEDIAMTX-LICENSE.txt
+
+
+Fyne Systray
+============
+
+Component:
+  fyne.io/systray v1.12.2
+
+Usage:
+  Windows notification-area integration for
+  Ylyxium Multistream Manager.
+
+License text:
+  licenses/FYNE-SYSTRAY-LICENSE.txt
+
+
+Go x/sys
+========
+
+Component:
+  golang.org/x/sys v0.15.0
+
+Usage:
+  Low-level Windows system integration used by the
+  Windows desktop build.
+
+License text:
+  licenses/GOLANG-X-SYS-LICENSE.txt

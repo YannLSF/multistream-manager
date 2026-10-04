@@ -129,3 +129,54 @@ func TestDetectRuntimeLayoutPortableMediaMTX(t *testing.T) {
 		t.Fatalf("mediamtx = %q", got.MediaMTXBin)
 	}
 }
+
+func TestDefaultLogDirPortable(t *testing.T) {
+	layout := RuntimeLayout{
+		Portable: true,
+		DataDir: filepath.Join(
+			"portable-root",
+			"data",
+		),
+	}
+
+	got := defaultLogDir(
+		layout,
+		filepath.Join("ignored", "data"),
+	)
+
+	want := filepath.Join(
+		"portable-root",
+		"logs",
+	)
+
+	if got != want {
+		t.Fatalf(
+			"defaultLogDir portable = %q, want %q",
+			got,
+			want,
+		)
+	}
+}
+
+func TestDefaultLogDirSystem(t *testing.T) {
+	layout := RuntimeLayout{
+		Portable: false,
+		DataDir:  "/data",
+	}
+
+	dataDir := filepath.Join(
+		"custom",
+		"data",
+	)
+
+	got := defaultLogDir(layout, dataDir)
+	want := filepath.Join(dataDir, "logs")
+
+	if got != want {
+		t.Fatalf(
+			"defaultLogDir system = %q, want %q",
+			got,
+			want,
+		)
+	}
+}

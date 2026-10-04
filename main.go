@@ -33,6 +33,7 @@ var webFS embed.FS
 type Settings struct {
 	Bind              string
 	DataDir           string
+	LogDir            string
 	MTXAPI            string
 	MTXRTMPBase       string
 	MTXPathPrefix     string
@@ -286,14 +287,23 @@ type App struct {
 }
 
 func main() {
+	preparePlatformCLI()
+
 	if handleHashPasswordCLI() {
 		return
 	}
+
 	settings := loadSettings()
+
 	if err := prepareRuntimeDataDir(settings); err != nil {
 		log.Fatalf("cannot prepare data directory: %v", err)
 	}
+
+	desktop := newDesktopController(settings)
+	defer desktop.Close()
+
 	logRuntimeDiagnostics(settings)
+	log.Printf("Log directory: %s", settings.LogDir)
 
 	if err := loadPresetCatalog(settings.DataDir); err != nil {
 		log.Fatalf("cannot load preset catalog: %v", err)
@@ -315,6 +325,7 @@ func main() {
 		resourceByPreview: make(map[string]ProcessResources),
 		clockTicks:        detectClockTicks(),
 	}
+	desktop.AttachApp(app)
 	if err := app.loadConfig(); err != nil {
 		log.Fatalf("cannot load config: %v", err)
 	}
@@ -322,7 +333,7 @@ func main() {
 		log.Fatalf("cannot load error history: %v", err)
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(desktop.Context(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	mediaMTX := newMediaMTXSupervisor(settings)
@@ -441,9 +452,15 @@ func loadSettings() Settings {
 		mediaMTXBin = "mediamtx"
 	}
 
+	dataDir := envDefault("DATA_DIR", layout.DataDir)
+	logDir := envDefault(
+		"LOG_DIR",
+		defaultLogDir(layout, dataDir),
+	)
 	return Settings{
 		Bind:              envDefault("BIND", ":8090"),
-		DataDir:           envDefault("DATA_DIR", layout.DataDir),
+		DataDir:           dataDir,
+		LogDir:            logDir,
 		MTXAPI:            strings.TrimRight(envDefault("MTX_API", "http://127.0.0.1:9999"), "/"),
 		MTXRTMPBase:       strings.TrimRight(envDefault("MTX_RTMP_BASE", "rtmp://127.0.0.1:1938"), "/"),
 		MTXPathPrefix:     envDefault("MTX_PATH_PREFIX", "app/"),
@@ -1008,10 +1025,10 @@ func (a *App) startDestination(id string, manual bool) error {
 
 	logger := newRingLog(lines, d.StreamKey, sourcePath)
 
-	if a.settings.DataDir != "" && a.settings.LogMaxBytes > 0 {
+	if a.settings.LogDir != "" && a.settings.LogMaxBytes > 0 {
 		logger = newPersistentRingLog(
 			lines,
-			filepath.Join(a.settings.DataDir, "logs", slugID(d.ID)+".log"),
+			filepath.Join(a.settings.LogDir, "destinations", slugID(d.ID)+".log"),
 			a.settings.LogMaxBytes,
 			a.settings.LogBackups,
 			d.StreamKey,

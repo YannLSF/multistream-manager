@@ -138,6 +138,40 @@ docker run --rm \
   sh -c 'go test ./...'
 
 echo
+echo "=== WINDOWS APPLICATION RESOURCES ==="
+
+rm -f "$ROOT/rsrc_windows_amd64.syso"
+
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -e GOCACHE=/tmp/go-cache \
+  -e GOPATH=/tmp/go \
+  -v "$ROOT:/src" \
+  -w /src \
+  golang:1.23-alpine \
+  sh -c '
+    set -eu
+
+    go run \
+      github.com/tc-hib/go-winres@v0.3.3 \
+      simply \
+      --arch=amd64 \
+      --out=rsrc \
+      --manifest=gui \
+      --icon=assets/ylyxium-multistream-manager.ico \
+      --file-version=0.5.0.0 \
+      --product-version=0.5.0.0 \
+      --file-description="Ylyxium Multistream Manager" \
+      --product-name="Ylyxium Multistream Manager" \
+      --original-filename="YlyxiumMultistreamManager.exe"
+  '
+
+[ -s "$ROOT/rsrc_windows_amd64.syso" ] ||
+  fail "Windows resource object was not generated"
+
+echo "Windows application resources: OK"
+echo
+
 echo "=== BUILD MANAGER ==="
 
 mkdir -p "$TMP/out"
@@ -167,12 +201,14 @@ docker run --rm \
     GOARCH=amd64 \
       go build \
       -trimpath \
-      -ldflags="-s -w" \
+      -ldflags="-s -w -H=windowsgui" \
       -o /out/YlyxiumMultistreamManager.exe \
       .
   '
 
 echo
+rm -f "$ROOT/rsrc_windows_amd64.syso"
+
 echo "=== EXTRACTION LICENCES FFMPEG ==="
 
 mkdir -p "$TMP/ff-linux" "$TMP/ff-windows"
@@ -207,12 +243,17 @@ rm -rf "$DIST"
 mkdir -p \
   "$LINUX_DIR/bin" \
   "$LINUX_DIR/data" \
+  "$LINUX_DIR/logs/destinations" \
   "$LINUX_DIR/licenses" \
   "$WINDOWS_DIR/bin" \
   "$WINDOWS_DIR/data" \
+  "$WINDOWS_DIR/logs/destinations" \
   "$WINDOWS_DIR/licenses"
 
-chmod 700 "$LINUX_DIR/data"
+chmod 700 \
+  "$LINUX_DIR/data" \
+  "$LINUX_DIR/logs" \
+  "$LINUX_DIR/logs/destinations"
 
 cp "$TMP/out/YlyxiumMultistreamManager" \
   "$LINUX_DIR/YlyxiumMultistreamManager"
@@ -267,6 +308,13 @@ cp "$MEDIAMTX_SOURCE/LICENSE" \
 
 cp "$MEDIAMTX_SOURCE/LICENSE" \
   "$WINDOWS_DIR/licenses/MEDIAMTX-LICENSE.txt"
+
+
+cp "$ROOT/third_party/FYNE-SYSTRAY-LICENSE.txt" \
+  "$WINDOWS_DIR/licenses/FYNE-SYSTRAY-LICENSE.txt"
+
+cp "$ROOT/third_party/GOLANG-X-SYS-LICENSE.txt" \
+  "$WINDOWS_DIR/licenses/GOLANG-X-SYS-LICENSE.txt"
 
 echo
 echo "=== MANIFESTES ==="

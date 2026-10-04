@@ -27,6 +27,10 @@ bin/
 data/
   Runtime configuration and persistent data.
 
+logs/
+  Runtime logs.
+  Destination FFmpeg logs are stored in logs/destinations/.
+
 licenses/
   Third-party license notices.
 
@@ -76,7 +80,26 @@ Persistent data is then stored in:
 
   data/
 
-This includes configuration, presets, logs, preview files and error history.
+This includes configuration, presets, preview files and error history.
+
+
+PORTABLE LOGS
+-------------
+
+Portable builds keep logs outside the data directory:
+
+  logs/
+
+Destination-specific FFmpeg logs are stored in:
+
+  logs/destinations/
+
+The Windows desktop build also uses this directory for the main application
+and managed MediaMTX logs.
+
+The log directory can be overridden with:
+
+  LOG_DIR
 
 
 EXTERNAL MEDIAMTX

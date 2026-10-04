@@ -103,8 +103,30 @@ func regularFile(path string) bool {
 	return info.Mode().IsRegular()
 }
 
+func defaultLogDir(layout RuntimeLayout, dataDir string) string {
+	if layout.Portable {
+		return filepath.Join(
+			filepath.Dir(layout.DataDir),
+			"logs",
+		)
+	}
+
+	return filepath.Join(dataDir, "logs")
+}
+
 func prepareRuntimeDataDir(settings Settings) error {
-	return os.MkdirAll(settings.DataDir, 0700)
+	if err := os.MkdirAll(settings.DataDir, 0o700); err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(settings.LogDir, 0o700); err != nil {
+		return err
+	}
+
+	return os.MkdirAll(
+		filepath.Join(settings.LogDir, "destinations"),
+		0o700,
+	)
 }
 
 func logRuntimeDiagnostics(settings Settings) {
