@@ -1,0 +1,62 @@
+Multistream Manager v0.5.0
+Third-Party Notices
+===================
+
+FFmpeg / FFprobe
+----------------
+
+Version:
+  n9.0.2-17-g2a571b6068-20260930
+
+Build:
+  BtbN/FFmpeg-Builds
+  autobuild-2026-09-30-13-08
+  LGPL variant
+  FFmpeg 9.0 branch
+
+The bundled FFmpeg and FFprobe executables are separate programs invoked by
+Multistream Manager.
+
+The exact license file supplied with the BtbN binary archive is included as:
+
+  licenses/FFMPEG-LICENSE.txt
+
+The build configuration reported by the bundled FFmpeg binary is recorded in:
+
+  BUILD-MANIFEST.txt
+
+Upstream projects:
+
+  https://ffmpeg.org/
+  https://github.com/BtbN/FFmpeg-Builds
+
+FFmpeg source revision represented by the binary version:
+
+  n9.0.2-17-g2a571b6068
+
+When publicly redistributing these binaries, the corresponding FFmpeg and
+applicable third-party source/license obligations must also be satisfied.
+
+
+MediaMTX
+--------
+
+Version:
+  v1.21.1-enhanced-rtmp.1
+
+MediaMTX source revision:
+  825b59f870bc1c493dd326e68dc33f81a0420263
+
+Custom gortmplib revision:
+  cb3eae9f5733c14c01d19398520a140c8927c29b
+
+Repositories:
+
+  https://github.com/YannLSF/mediamtx
+  https://github.com/YannLSF/gortmplib
+
+MediaMTX is distributed under the MIT License.
+
+Its license text is included as:
+
+  licenses/MEDIAMTX-LICENSE.txt
