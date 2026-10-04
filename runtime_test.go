@@ -108,3 +108,24 @@ func TestDetectRuntimeLayoutPortableWindows(t *testing.T) {
 		t.Fatalf("ffprobe = %q", got.FFprobeBin)
 	}
 }
+
+func TestDetectRuntimeLayoutPortableMediaMTX(t *testing.T) {
+	dir := t.TempDir()
+
+	ffmpeg := filepath.Join(dir, "bin", "ffmpeg")
+	ffprobe := filepath.Join(dir, "bin", "ffprobe")
+	mediamtx := filepath.Join(dir, "bin", "mediamtx")
+
+	writeRuntimeTool(t, ffmpeg)
+	writeRuntimeTool(t, ffprobe)
+	writeRuntimeTool(t, mediamtx)
+
+	got := detectRuntimeLayoutAt(dir, "linux")
+
+	if !got.Portable {
+		t.Fatal("portable mode not detected")
+	}
+	if got.MediaMTXBin != mediamtx {
+		t.Fatalf("mediamtx = %q", got.MediaMTXBin)
+	}
+}

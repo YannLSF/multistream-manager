@@ -37,6 +37,9 @@ type Settings struct {
 	MTXRTMPBase       string
 	MTXPathPrefix     string
 	MTXSourcesPrefix  string
+	MediaMTXBin       string
+	MediaMTXManaged   bool
+	MediaMTXConfig    string
 	PollInterval      time.Duration
 	FFmpegBin         string
 	FFprobeBin        string
@@ -291,9 +294,6 @@ func main() {
 		log.Fatalf("cannot prepare data directory: %v", err)
 	}
 	logRuntimeDiagnostics(settings)
-	if err := os.MkdirAll(settings.DataDir, 0o700); err != nil {
-		log.Fatalf("cannot create data directory: %v", err)
-	}
 
 	if err := loadPresetCatalog(settings.DataDir); err != nil {
 		log.Fatalf("cannot load preset catalog: %v", err)
@@ -324,6 +324,15 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	mediaMTX := newMediaMTXSupervisor(settings)
+	if err := mediaMTX.Start(ctx); err != nil {
+		log.Fatalf("cannot start managed MediaMTX: %v", err)
+	}
+	defer func() {
+		_ = mediaMTX.Stop()
+	}()
+
 	go app.monitor(ctx)
 
 	mux := http.NewServeMux()
@@ -379,6 +388,7 @@ func main() {
 		<-ctx.Done()
 		app.stopAllPreviews()
 		app.stopAll(false)
+		_ = mediaMTX.Stop()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(shutCtx)
@@ -392,6 +402,9 @@ func main() {
 		log.Printf("WARNING: Web authentication is disabled")
 	}
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		app.stopAllPreviews()
+		app.stopAll(false)
+		_ = mediaMTX.Stop()
 		log.Fatal(err)
 	}
 }
@@ -408,6 +421,26 @@ func loadSettings() Settings {
 	if sessionHours < 1 {
 		sessionHours = 24
 	}
+
+	mediaMTXBin := strings.TrimSpace(os.Getenv("MEDIAMTX_BIN"))
+	mediaMTXManagedDefault := false
+
+	if mediaMTXBin != "" {
+		mediaMTXManagedDefault = true
+	} else if layout.MediaMTXBin != "" {
+		mediaMTXBin = layout.MediaMTXBin
+		mediaMTXManagedDefault = layout.Portable
+	}
+
+	mediaMTXManaged := envBool(
+		"MEDIAMTX_MANAGED",
+		mediaMTXManagedDefault,
+	)
+
+	if mediaMTXManaged && mediaMTXBin == "" {
+		mediaMTXBin = "mediamtx"
+	}
+
 	return Settings{
 		Bind:              envDefault("BIND", ":8090"),
 		DataDir:           envDefault("DATA_DIR", layout.DataDir),
@@ -415,6 +448,9 @@ func loadSettings() Settings {
 		MTXRTMPBase:       strings.TrimRight(envDefault("MTX_RTMP_BASE", "rtmp://127.0.0.1:1938"), "/"),
 		MTXPathPrefix:     envDefault("MTX_PATH_PREFIX", "app/"),
 		MTXSourcesPrefix:  envDefault("MTX_SOURCES_PREFIX", "sources/"),
+		MediaMTXBin:       mediaMTXBin,
+		MediaMTXManaged:   mediaMTXManaged,
+		MediaMTXConfig:    strings.TrimSpace(os.Getenv("MEDIAMTX_CONFIG")),
 		PollInterval:      poll,
 		FFmpegBin:         envDefault("FFMPEG_BIN", layout.FFmpegBin),
 		FFprobeBin:        envDefault("FFPROBE_BIN", layout.FFprobeBin),

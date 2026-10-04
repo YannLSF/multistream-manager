@@ -17,12 +17,13 @@ import (
 // Portable mode is deliberately conservative: it is enabled only when both
 // FFmpeg and FFprobe are present in the bin directory next to the Manager.
 type RuntimeLayout struct {
-	AppDir     string
-	BinDir     string
-	DataDir    string
-	Portable   bool
-	FFmpegBin  string
-	FFprobeBin string
+	AppDir      string
+	BinDir      string
+	DataDir     string
+	Portable    bool
+	FFmpegBin   string
+	FFprobeBin  string
+	MediaMTXBin string
 }
 
 func detectRuntimeLayout() RuntimeLayout {
@@ -42,6 +43,11 @@ func detectRuntimeLayoutAt(appDir, goos string) RuntimeLayout {
 		runtimeExecutableName("ffprobe", goos),
 	)
 
+	mediaMTXBundled := filepath.Join(
+		binDir,
+		runtimeExecutableName("mediamtx", goos),
+	)
+
 	portable := regularFile(ffmpegBundled) && regularFile(ffprobeBundled)
 
 	layout := RuntimeLayout{
@@ -57,6 +63,10 @@ func detectRuntimeLayoutAt(appDir, goos string) RuntimeLayout {
 		layout.DataDir = filepath.Join(appDir, "data")
 		layout.FFmpegBin = ffmpegBundled
 		layout.FFprobeBin = ffprobeBundled
+	}
+
+	if regularFile(mediaMTXBundled) {
+		layout.MediaMTXBin = mediaMTXBundled
 	}
 
 	return layout
@@ -94,7 +104,7 @@ func regularFile(path string) bool {
 }
 
 func prepareRuntimeDataDir(settings Settings) error {
-	return os.MkdirAll(settings.DataDir, 0755)
+	return os.MkdirAll(settings.DataDir, 0700)
 }
 
 func logRuntimeDiagnostics(settings Settings) {
@@ -114,10 +124,32 @@ func logRuntimeDiagnostics(settings Settings) {
 
 	logBinaryVersion("FFmpeg", settings.FFmpegBin)
 	logBinaryVersion("FFprobe", settings.FFprobeBin)
+
+	if settings.MediaMTXManaged {
+		log.Printf("MediaMTX supervision: managed")
+		logBinaryVersionWithArgs(
+			"MediaMTX",
+			settings.MediaMTXBin,
+			"--version",
+		)
+	} else {
+		log.Printf(
+			"MediaMTX supervision: external ; API: %s",
+			settings.MTXAPI,
+		)
+	}
 }
 
 func logBinaryVersion(name, binary string) {
-	version, err := binaryVersion(binary)
+	logBinaryVersionWithArgs(name, binary, "-version")
+}
+
+func logBinaryVersionWithArgs(
+	name string,
+	binary string,
+	args ...string,
+) {
+	version, err := binaryVersion(binary, args...)
 	if err != nil {
 		log.Printf(
 			"WARNING: %s unavailable at %q: %v",
@@ -131,11 +163,11 @@ func logBinaryVersion(name, binary string) {
 	log.Printf("%s: %s ; binary: %s", name, version, binary)
 }
 
-func binaryVersion(binary string) (string, error) {
+func binaryVersion(binary string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, binary, "-version")
+	cmd := exec.CommandContext(ctx, binary, args...)
 	out, err := cmd.Output()
 
 	if ctx.Err() != nil {
