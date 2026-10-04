@@ -105,10 +105,11 @@ func (s *MediaMTXSupervisor) Start(ctx context.Context) error {
 
 	// Never take ownership of a MediaMTX instance that was already running.
 	if mediaMTXAPIReady(s.settings.MTXAPI) {
-		return fmt.Errorf(
-			"MediaMTX API is already reachable at %s; refusing to start and own another instance",
+		log.Printf(
+			"MediaMTX API already available at %s ; using existing external instance",
 			s.settings.MTXAPI,
 		)
+		return nil
 	}
 
 	if s.generatedConfig {
