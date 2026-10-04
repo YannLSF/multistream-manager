@@ -28,8 +28,8 @@ FF_DOWNLOAD="${FFMPEG_DOWNLOAD_DIR:-$HOME/multistream-ffmpeg-download}"
 MEDIAMTX_SOURCE="${MEDIAMTX_SOURCE_DIR:-$HOME/mediamtx-twitch}"
 DIST="${DIST_DIR:-$ROOT/dist}"
 
-LINUX_DIR="$DIST/MultistreamManager-v${VERSION}-linux-x64"
-WINDOWS_DIR="$DIST/MultistreamManager-v${VERSION}-windows-x64"
+LINUX_DIR="$DIST/Ylyxium-Multistream-Manager-v${VERSION}-linux-x64"
+WINDOWS_DIR="$DIST/Ylyxium-Multistream-Manager-v${VERSION}-windows-x64"
 
 TMP="$(mktemp -d)"
 
@@ -159,7 +159,7 @@ docker run --rm \
       go build \
       -trimpath \
       -ldflags="-s -w" \
-      -o /out/MultistreamManager \
+      -o /out/YlyxiumMultistreamManager \
       .
 
     CGO_ENABLED=0 \
@@ -168,7 +168,7 @@ docker run --rm \
       go build \
       -trimpath \
       -ldflags="-s -w" \
-      -o /out/MultistreamManager.exe \
+      -o /out/YlyxiumMultistreamManager.exe \
       .
   '
 
@@ -214,8 +214,8 @@ mkdir -p \
 
 chmod 700 "$LINUX_DIR/data"
 
-cp "$TMP/out/MultistreamManager" \
-  "$LINUX_DIR/MultistreamManager"
+cp "$TMP/out/YlyxiumMultistreamManager" \
+  "$LINUX_DIR/YlyxiumMultistreamManager"
 
 cp "$ASSETS/linux-amd64/ffmpeg" \
   "$LINUX_DIR/bin/ffmpeg"
@@ -227,13 +227,13 @@ cp "$ASSETS/linux-amd64/mediamtx" \
   "$LINUX_DIR/bin/mediamtx"
 
 chmod 755 \
-  "$LINUX_DIR/MultistreamManager" \
+  "$LINUX_DIR/YlyxiumMultistreamManager" \
   "$LINUX_DIR/bin/ffmpeg" \
   "$LINUX_DIR/bin/ffprobe" \
   "$LINUX_DIR/bin/mediamtx"
 
-cp "$TMP/out/MultistreamManager.exe" \
-  "$WINDOWS_DIR/MultistreamManager.exe"
+cp "$TMP/out/YlyxiumMultistreamManager.exe" \
+  "$WINDOWS_DIR/YlyxiumMultistreamManager.exe"
 
 cp "$ASSETS/windows-amd64/ffmpeg.exe" \
   "$WINDOWS_DIR/bin/ffmpeg.exe"
@@ -289,13 +289,13 @@ write_manifest() {
   platform="$2"
 
   {
-    echo "Multistream Manager v$VERSION"
+    echo "Ylyxium Multistream Manager v$VERSION"
     echo "Build manifest"
     echo "=============="
     echo
     echo "Platform: $platform"
     echo
-    echo "Multistream Manager"
+    echo "Ylyxium Multistream Manager"
     echo "-------------------"
     echo "Version: $VERSION"
     echo "Commit: $COMMIT"
@@ -347,8 +347,8 @@ echo "=== CONTROLES PACKAGES ==="
 "$LINUX_DIR/bin/mediamtx" --version
 
 file \
-  "$LINUX_DIR/MultistreamManager" \
-  "$WINDOWS_DIR/MultistreamManager.exe"
+  "$LINUX_DIR/YlyxiumMultistreamManager" \
+  "$WINDOWS_DIR/YlyxiumMultistreamManager.exe"
 
 grep -Fq "Version: $VERSION" \
   "$LINUX_DIR/BUILD-MANIFEST.txt"
@@ -359,8 +359,8 @@ grep -Fq "Version: $VERSION" \
 echo
 echo "=== ARCHIVES ==="
 
-LINUX_ARCHIVE="MultistreamManager-v${VERSION}-linux-x64.tar.gz"
-WINDOWS_ARCHIVE="MultistreamManager-v${VERSION}-windows-x64.zip"
+LINUX_ARCHIVE="Ylyxium-Multistream-Manager-v${VERSION}-linux-x64.tar.gz"
+WINDOWS_ARCHIVE="Ylyxium-Multistream-Manager-v${VERSION}-windows-x64.zip"
 
 (
   cd "$DIST"

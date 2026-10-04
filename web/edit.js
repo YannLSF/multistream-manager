@@ -309,7 +309,7 @@ function fillForm(){
   const sourceID = destination.source_id || "primary";
 
   document.title =
-    `Éditer ${destination.name} — Multistream Manager`;
+    `Éditer ${destination.name} — Ylyxium Multistream Manager`;
 
   $("#pageTitle").textContent =
     `Éditer ${destination.name}`;
@@ -459,7 +459,7 @@ $("#editPageForm").addEventListener("submit", async e => {
       `Éditer ${destination.name}`;
 
     document.title =
-      `Éditer ${destination.name} — Multistream Manager`;
+      `Éditer ${destination.name} — Ylyxium Multistream Manager`;
   }catch(err){
     $("#formError").textContent = err.message;
     $("#formError").classList.remove("hidden");

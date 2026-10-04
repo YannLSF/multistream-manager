@@ -1,4 +1,4 @@
-Multistream Manager v0.5.0
+Ylyxium Multistream Manager v0.5.0
 Third-Party Notices
 ===================
 
@@ -15,7 +15,7 @@ Build:
   FFmpeg 9.0 branch
 
 The bundled FFmpeg and FFprobe executables are separate programs invoked by
-Multistream Manager.
+Ylyxium Multistream Manager.
 
 The exact license file supplied with the BtbN binary archive is included as:
 

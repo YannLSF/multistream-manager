@@ -394,7 +394,7 @@ func main() {
 		_ = srv.Shutdown(shutCtx)
 	}()
 
-	log.Printf("Multistream Manager v%s listening on %s", appVersion, settings.Bind)
+	log.Printf("Ylyxium Multistream Manager v%s listening on %s", appVersion, settings.Bind)
 	log.Printf("MediaMTX API: %s ; RTMP: %s ; path prefix: %q", settings.MTXAPI, settings.MTXRTMPBase, settings.MTXPathPrefix)
 	if app.auth.Enabled() {
 		log.Printf("Web authentication enabled for user %q", settings.AuthUsername)

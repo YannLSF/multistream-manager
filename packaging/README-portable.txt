@@ -1,12 +1,12 @@
-Multistream Manager v0.5.0
+Ylyxium Multistream Manager v0.5.0
 ==========================
 
-Multistream Manager is a standalone WebUI for managing multiple RTMP/RTMPS
+Ylyxium Multistream Manager is a standalone WebUI for managing multiple RTMP/RTMPS
 outputs from Enhanced RTMP sources received by MediaMTX.
 
 This portable distribution contains:
 
-  - Multistream Manager v0.5.0
+  - Ylyxium Multistream Manager v0.5.0
   - MediaMTX v1.21.1-enhanced-rtmp.1
   - FFmpeg / FFprobe n9.0.2-17-g2a571b6068-20260930
 
@@ -70,7 +70,7 @@ PORTABLE DATA
 -------------
 
 When ffmpeg, ffprobe and mediamtx are found in the local bin directory,
-Multistream Manager automatically enables portable mode.
+Ylyxium Multistream Manager automatically enables portable mode.
 
 Persistent data is then stored in:
 
@@ -84,11 +84,11 @@ EXTERNAL MEDIAMTX
 
 The bundled MediaMTX instance is started automatically in portable mode.
 
-If the configured MediaMTX API is already available when Multistream Manager
+If the configured MediaMTX API is already available when Ylyxium Multistream Manager
 starts, the existing external instance is used instead.
 
-Multistream Manager does not take ownership of an already-running external
-MediaMTX process and will not stop it when Multistream Manager exits.
+Ylyxium Multistream Manager does not take ownership of an already-running external
+MediaMTX process and will not stop it when Ylyxium Multistream Manager exits.
 
 
 LINUX REQUIREMENTS

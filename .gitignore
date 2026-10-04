@@ -22,3 +22,8 @@ error-history.json
 # Runtime portable local
 /bin/
 /dist/
+
+# Ylyxium Multistream Manager
+/YlyxiumMultistreamManager
+/YlyxiumMultistreamManager.exe
+/rsrc_windows_*.syso

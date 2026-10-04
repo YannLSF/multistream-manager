@@ -1,4 +1,4 @@
-# Multistream Manager v0.4.2
+# Ylyxium Multistream Manager v0.4.2
 
 WebUI autonome pour piloter plusieurs sorties RTMP/RTMPS à partir du flux Enhanced RTMP reçu par MediaMTX.
 
@@ -101,7 +101,7 @@ Après cinq échecs de connexion depuis la même adresse, les nouvelles tentativ
 
 La WebUI affiche maintenant les ressources du Manager et de ses FFmpeg :
 
-- processus Multistream Manager ;
+- processus Ylyxium Multistream Manager ;
 - ensemble des forwards FFmpeg ;
 - ensemble des aperçus HLS FFmpeg ;
 - total ;
